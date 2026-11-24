@@ -27,6 +27,8 @@ import type {
   PluginManifestKind,
 } from "../types";
 import s from "./PluginsPage.module.css";
+import { Drawer } from "../components/ui/Drawer";
+import { FolderedGrid, FolderPicker } from "../components/ui/FolderedGrid";
 import { useConfirm } from "../components/ui/ConfirmDialog";
 
 interface Props {
@@ -119,12 +121,10 @@ export function PluginsPage({ onNavigate }: Props) {
     );
   }, [plugins, query]);
 
+  // Details open only on click, in a drawer; closes if the plugin disappears.
   const selectedPlugin = useMemo(
-    () =>
-      filteredPlugins.find((p) => p.id === selectedId) ??
-      filteredPlugins[0] ??
-      null,
-    [filteredPlugins, selectedId]
+    () => plugins.find((p) => p.id === selectedId) ?? null,
+    [plugins, selectedId]
   );
 
   const filteredCandidates = useMemo(() => {
@@ -139,12 +139,6 @@ export function PluginsPage({ onNavigate }: Props) {
         (c.category ?? "").toLowerCase().includes(q)
     );
   }, [candidateQuery, pendingSelection]);
-
-  useEffect(() => {
-    if (selectedPlugin && selectedPlugin.id !== selectedId) {
-      setSelectedId(selectedPlugin.id);
-    }
-  }, [selectedId, selectedPlugin]);
 
   useEffect(() => {
     if (selectedPlugin) {
@@ -466,381 +460,406 @@ export function PluginsPage({ onNavigate }: Props) {
         </div>
       ) : (
         <div className={s.body}>
-          <aside className={s.listPane}>
-            {filteredPlugins.map((plugin) => {
-              const enabledCount = (globalEnabledByPlugin[plugin.id] ?? [])
-                .length;
-              return (
-                <button
-                  key={plugin.id}
-                  type="button"
-                  className={`${s.pluginCard} ${selectedPlugin?.id === plugin.id ? s.pluginCardActive : ""}`}
-                  onClick={() => setSelectedId(plugin.id)}
-                >
-                  <div className={s.cardTop}>
-                    <span className={s.cardTitle}>{plugin.name}</span>
-                    <span className={s.manifestBadge}>
-                      {MANIFEST_LABELS[plugin.manifestKind]}
-                    </span>
-                  </div>
-                  {plugin.description && (
-                    <div className={s.cardDesc}>{plugin.description}</div>
-                  )}
-                  <div className={s.pillRow}>
-                    <span className={s.pill}>
-                      Skills {plugin.components.skills.length}
-                    </span>
-                    <span className={s.pill}>
-                      MCP {plugin.components.mcpServers.length}
-                    </span>
-                    {plugin.components.hooks.length > 0 && (
-                      <span className={s.pill}>
-                        Hooks {plugin.components.hooks.length}
+          <div className={s.listPane}>
+            <FolderedGrid
+              kind="plugin"
+              items={filteredPlugins}
+              getId={(plugin) => plugin.id}
+              searching={!!query.trim()}
+              empty={null}
+              renderItem={(plugin) => {
+                const enabledCount = (globalEnabledByPlugin[plugin.id] ?? [])
+                  .length;
+                return (
+                  <button
+                    key={plugin.id}
+                    type="button"
+                    className={`${s.pluginCard} ${selectedPlugin?.id === plugin.id ? s.pluginCardActive : ""}`}
+                    onClick={() => setSelectedId(plugin.id)}
+                  >
+                    <div className={s.cardTop}>
+                      <span className={s.cardTitle}>{plugin.name}</span>
+                      <span className={s.manifestBadge}>
+                        {MANIFEST_LABELS[plugin.manifestKind]}
                       </span>
+                    </div>
+                    {plugin.description && (
+                      <div className={s.cardDesc}>{plugin.description}</div>
                     )}
-                    <span className={s.pill}>全局 {enabledCount} 端</span>
-                  </div>
-                </button>
-              );
-            })}
-          </aside>
+                    <div className={s.pillRow}>
+                      <span className={s.pill}>
+                        Skills {plugin.components.skills.length}
+                      </span>
+                      <span className={s.pill}>
+                        MCP {plugin.components.mcpServers.length}
+                      </span>
+                      {plugin.components.hooks.length > 0 && (
+                        <span className={s.pill}>
+                          Hooks {plugin.components.hooks.length}
+                        </span>
+                      )}
+                      <span className={s.pill}>全局 {enabledCount} 端</span>
+                    </div>
+                  </button>
+                );
+              }}
+            />
+          </div>
 
           {selectedPlugin && (
-            <section className={s.detailPane}>
-              <div className={s.detailHeader}>
-                <div>
-                  <div className={s.detailTitle}>
-                    {selectedPlugin.name}{" "}
-                    {selectedPlugin.version ? `v${selectedPlugin.version}` : ""}
+            <Drawer
+              label={selectedPlugin.name}
+              onClose={() => setSelectedId(null)}
+            >
+              <section className={s.detailPane}>
+                <div className={s.detailHeader}>
+                  <div>
+                    <div className={s.detailTitle}>
+                      {selectedPlugin.name}{" "}
+                      {selectedPlugin.version
+                        ? `v${selectedPlugin.version}`
+                        : ""}
+                    </div>
+                    <div className={s.detailMeta}>
+                      {MANIFEST_LABELS[selectedPlugin.manifestKind]} · 载荷目录:{" "}
+                      {selectedPlugin.sourceDirPath}
+                    </div>
                   </div>
-                  <div className={s.detailMeta}>
-                    {MANIFEST_LABELS[selectedPlugin.manifestKind]} · 载荷目录:{" "}
-                    {selectedPlugin.sourceDirPath}
-                  </div>
-                </div>
 
-                <div className={s.actions}>
-                  <button
-                    type="button"
-                    className={s.btn}
-                    onClick={() =>
-                      void showInFinder(selectedPlugin.sourceDirPath)
-                    }
-                  >
-                    <ExternalLink size={13} /> 打开目录
-                  </button>
-                  <button
-                    type="button"
-                    className={`${s.btn} ${s.btnDanger}`}
-                    onClick={async () => {
-                      const ok = await confirm({
-                        title: `删除插件「${selectedPlugin.name}」？`,
-                        message:
-                          "会一并卸载并删除它投射出的 Skills、Commands 和 MCP，并同步到备份仓库。",
-                        confirmLabel: "删除",
-                        danger: true,
-                      });
-                      if (ok) void remove(selectedPlugin.id);
-                    }}
-                  >
-                    <Trash2 size={13} /> 原子删除
-                  </button>
-                </div>
-              </div>
-
-              {/* Bundled Components Overview */}
-              <div className={s.sectionCard}>
-                <div className={s.sectionHeader}>
-                  <span className={s.sectionTitle}>
-                    <Layers size={15} /> 内含组件清单与联动导航
-                  </span>
                   <div className={s.actions}>
-                    {selectedPlugin.projectedSkillIds.length > 0 && (
-                      <button
-                        type="button"
-                        className={s.btn}
-                        onClick={() => onNavigate("my-library")}
-                      >
-                        查看投射 Skills (
-                        {selectedPlugin.projectedSkillIds.length})
-                      </button>
-                    )}
-                    {selectedPlugin.projectedMcpServerIds.length > 0 && (
-                      <button
-                        type="button"
-                        className={s.btn}
-                        onClick={() => onNavigate("mcp-servers")}
-                      >
-                        查看捆绑 MCP (
-                        {selectedPlugin.projectedMcpServerIds.length})
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className={s.noticeBanner}>
-                  跨端双模编排：在同构客户端（Claude / Codex / Cursor /
-                  Antigravity /
-                  Gemini）挂载原生插件目录并投射组件；在异构客户端自动展开{" "}
-                  <code>{"${CLAUDE_PLUGIN_ROOT}"}</code> 宏后投射 Skills 与
-                  MCP。
-                </div>
-
-                <div className={s.componentGrid}>
-                  <div className={s.componentBox}>
-                    <span className={s.componentLabel}>
-                      Skills ({selectedPlugin.components.skills.length})
-                    </span>
-                    <span className={s.componentList}>
-                      {selectedPlugin.components.skills.join(", ") || "无"}
-                    </span>
-                  </div>
-                  <div className={s.componentBox}>
-                    <span className={s.componentLabel}>
-                      MCP Servers ({selectedPlugin.components.mcpServers.length}
-                      )
-                    </span>
-                    <span className={s.componentList}>
-                      {selectedPlugin.components.mcpServers.join(", ") || "无"}
-                    </span>
-                  </div>
-                  <div className={s.componentBox}>
-                    <span className={s.componentLabel}>
-                      Commands ({selectedPlugin.components.commands.length})
-                    </span>
-                    <span className={s.componentList}>
-                      {selectedPlugin.components.commands.join(", ") || "无"}
-                    </span>
-                  </div>
-                  <div className={s.componentBox}>
-                    <span className={s.componentLabel}>
-                      Hooks / Agents / Rules
-                    </span>
-                    <span className={s.componentList}>
-                      {[
-                        ...selectedPlugin.components.hooks,
-                        ...selectedPlugin.components.agents,
-                        ...selectedPlugin.components.rules,
-                      ].join(", ") || "无"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* userConfig & Secrets */}
-              {selectedPlugin.userConfigSchema.length > 0 && (
-                <div className={s.sectionCard}>
-                  <div className={s.sectionHeader}>
-                    <span className={s.sectionTitle}>
-                      <Lock size={15} /> 插件参数与敏感凭据 (userConfig)
-                    </span>
-                    <button
-                      type="button"
-                      className={s.btnPrimary}
-                      onClick={() => void handleSaveUserConfig(selectedPlugin)}
-                    >
-                      保存插件配置
-                    </button>
-                  </div>
-
-                  {selectedPlugin.userConfigSchema.map((field) => {
-                    const hasSecret =
-                      selectedPlugin.configuredSecretKeys.includes(field.key);
-                    return (
-                      <div key={field.key} className={s.configRow}>
-                        <span className={s.configKey}>
-                          {field.title} ({field.key})
-                        </span>
-                        {field.sensitive ? (
-                          <input
-                            type="password"
-                            className={s.input}
-                            value={secretDrafts[field.key] ?? ""}
-                            onChange={(e) =>
-                              setSecretDrafts((prev) => ({
-                                ...prev,
-                                [field.key]: e.target.value,
-                              }))
-                            }
-                            placeholder={
-                              hasSecret
-                                ? "本机已配置敏感凭据（输入新值可覆盖）"
-                                : "输入本机私密凭据（不进 Git 备份）"
-                            }
-                          />
-                        ) : (
-                          <input
-                            className={s.input}
-                            value={configDrafts[field.key] ?? ""}
-                            onChange={(e) =>
-                              setConfigDrafts((prev) => ({
-                                ...prev,
-                                [field.key]: e.target.value,
-                              }))
-                            }
-                            placeholder={
-                              field.defaultValue ?? field.description ?? ""
-                            }
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Global Per-App Switches */}
-              <div className={s.sectionCard}>
-                <div className={s.sectionTitle}>全局整包启停</div>
-                <div className={s.appGrid}>
-                  {visibleSkillApps.map((app) => {
-                    const enabled = (
-                      globalEnabledByPlugin[selectedPlugin.id] ?? []
-                    ).includes(app.id);
-                    const isNativeCapable = NATIVE_CAPABLE_APPS.has(app.id);
-                    return (
-                      <div key={app.id} className={s.appRow}>
-                        <div className={s.appInfo}>
-                          <span className={s.appName}>
-                            <span
-                              className={s.appDot}
-                              style={{ background: app.accentColor }}
-                            />
-                            {app.label}
-                          </span>
-                          <span className={s.appModeHint}>
-                            {isNativeCapable
-                              ? "原生挂载 + 组件投射"
-                              : "跨端解包投射 (Skills/MCP)"}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={enabled}
-                          className={`${s.switchBtn} ${enabled ? s.switchBtnOn : ""}`}
-                          onClick={() =>
-                            void togglePluginGlobalApp(
-                              selectedPlugin.id,
-                              app.id
-                            )
-                          }
-                        >
-                          <span
-                            className={`${s.switchThumb} ${enabled ? s.switchThumbOn : ""}`}
-                          />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Project Scope */}
-              <div className={s.sectionCard}>
-                <div className={s.sectionHeader}>
-                  <span className={s.sectionTitle}>项目级整包组件装配</span>
-                  <div className={s.actions}>
-                    <select
-                      className={s.select}
-                      value={claudeMcpMode}
-                      onChange={(e) =>
-                        setClaudeMcpMode(e.target.value as ClaudeProjectMcpMode)
-                      }
-                    >
-                      <option value="local">Claude MCP: local 本机私有</option>
-                      <option value="project">
-                        Claude MCP: project (.mcp.json)
-                      </option>
-                    </select>
+                    <FolderPicker kind="plugin" itemId={selectedPlugin.id} />
                     <button
                       type="button"
                       className={s.btn}
+                      onClick={() =>
+                        void showInFinder(selectedPlugin.sourceDirPath)
+                      }
+                    >
+                      <ExternalLink size={13} /> 打开目录
+                    </button>
+                    <button
+                      type="button"
+                      className={`${s.btn} ${s.btnDanger}`}
                       onClick={async () => {
-                        try {
-                          const p = await open({
-                            directory: true,
-                            multiple: false,
-                          });
-                          if (p) setSelectedProjectPath(p as string);
-                        } catch {
-                          // ignore
+                        const ok = await confirm({
+                          title: `删除插件「${selectedPlugin.name}」？`,
+                          message:
+                            "会一并卸载并删除它投射出的 Skills、Commands 和 MCP，并同步到备份仓库。",
+                          confirmLabel: "删除",
+                          danger: true,
+                        });
+                        if (ok) {
+                          setSelectedId(null);
+                          void remove(selectedPlugin.id);
                         }
                       }}
                     >
-                      <FolderPlus size={13} /> 选择项目
+                      <Trash2 size={13} /> 原子删除
                     </button>
                   </div>
                 </div>
 
-                <div className={s.actions}>
-                  {projects.filter((p) => p.path).length > 0 && (
-                    <select
-                      className={s.select}
-                      value={selectedProjectPath}
-                      onChange={(e) => setSelectedProjectPath(e.target.value)}
-                    >
-                      <option value="">-- 选择已保存项目 --</option>
-                      {projects
-                        .filter((p) => p.path)
-                        .map((proj) => (
-                          <option key={proj.id} value={proj.path ?? ""}>
-                            {proj.name}
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                  <input
-                    className={s.input}
-                    value={selectedProjectPath}
-                    onChange={(e) => setSelectedProjectPath(e.target.value)}
-                    placeholder="输入或选择项目本地根目录…"
-                  />
+                {/* Bundled Components Overview */}
+                <div className={s.sectionCard}>
+                  <div className={s.sectionHeader}>
+                    <span className={s.sectionTitle}>
+                      <Layers size={15} /> 内含组件清单与联动导航
+                    </span>
+                    <div className={s.actions}>
+                      {selectedPlugin.projectedSkillIds.length > 0 && (
+                        <button
+                          type="button"
+                          className={s.btn}
+                          onClick={() => onNavigate("my-library")}
+                        >
+                          查看投射 Skills (
+                          {selectedPlugin.projectedSkillIds.length})
+                        </button>
+                      )}
+                      {selectedPlugin.projectedMcpServerIds.length > 0 && (
+                        <button
+                          type="button"
+                          className={s.btn}
+                          onClick={() => onNavigate("mcp-servers")}
+                        >
+                          查看捆绑 MCP (
+                          {selectedPlugin.projectedMcpServerIds.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={s.noticeBanner}>
+                    跨端双模编排：在同构客户端（Claude / Codex / Cursor /
+                    Antigravity /
+                    Gemini）挂载原生插件目录并投射组件；在异构客户端自动展开{" "}
+                    <code>{"${CLAUDE_PLUGIN_ROOT}"}</code> 宏后投射 Skills 与
+                    MCP。
+                  </div>
+
+                  <div className={s.componentGrid}>
+                    <div className={s.componentBox}>
+                      <span className={s.componentLabel}>
+                        Skills ({selectedPlugin.components.skills.length})
+                      </span>
+                      <span className={s.componentList}>
+                        {selectedPlugin.components.skills.join(", ") || "无"}
+                      </span>
+                    </div>
+                    <div className={s.componentBox}>
+                      <span className={s.componentLabel}>
+                        MCP Servers (
+                        {selectedPlugin.components.mcpServers.length})
+                      </span>
+                      <span className={s.componentList}>
+                        {selectedPlugin.components.mcpServers.join(", ") ||
+                          "无"}
+                      </span>
+                    </div>
+                    <div className={s.componentBox}>
+                      <span className={s.componentLabel}>
+                        Commands ({selectedPlugin.components.commands.length})
+                      </span>
+                      <span className={s.componentList}>
+                        {selectedPlugin.components.commands.join(", ") || "无"}
+                      </span>
+                    </div>
+                    <div className={s.componentBox}>
+                      <span className={s.componentLabel}>
+                        Hooks / Agents / Rules
+                      </span>
+                      <span className={s.componentList}>
+                        {[
+                          ...selectedPlugin.components.hooks,
+                          ...selectedPlugin.components.agents,
+                          ...selectedPlugin.components.rules,
+                        ].join(", ") || "无"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                {selectedProjectPath.trim() && (
-                  <div className={s.appGrid}>
-                    {projectStatuses.map((st) => {
-                      const meta = getAppMeta(st.appId);
-                      if (!meta) return null;
+                {/* userConfig & Secrets */}
+                {selectedPlugin.userConfigSchema.length > 0 && (
+                  <div className={s.sectionCard}>
+                    <div className={s.sectionHeader}>
+                      <span className={s.sectionTitle}>
+                        <Lock size={15} /> 插件参数与敏感凭据 (userConfig)
+                      </span>
+                      <button
+                        type="button"
+                        className={s.btnPrimary}
+                        onClick={() =>
+                          void handleSaveUserConfig(selectedPlugin)
+                        }
+                      >
+                        保存插件配置
+                      </button>
+                    </div>
+
+                    {selectedPlugin.userConfigSchema.map((field) => {
+                      const hasSecret =
+                        selectedPlugin.configuredSecretKeys.includes(field.key);
                       return (
-                        <div key={st.appId} className={s.appRow}>
+                        <div key={field.key} className={s.configRow}>
+                          <span className={s.configKey}>
+                            {field.title} ({field.key})
+                          </span>
+                          {field.sensitive ? (
+                            <input
+                              type="password"
+                              className={s.input}
+                              value={secretDrafts[field.key] ?? ""}
+                              onChange={(e) =>
+                                setSecretDrafts((prev) => ({
+                                  ...prev,
+                                  [field.key]: e.target.value,
+                                }))
+                              }
+                              placeholder={
+                                hasSecret
+                                  ? "本机已配置敏感凭据（输入新值可覆盖）"
+                                  : "输入本机私密凭据（不进 Git 备份）"
+                              }
+                            />
+                          ) : (
+                            <input
+                              className={s.input}
+                              value={configDrafts[field.key] ?? ""}
+                              onChange={(e) =>
+                                setConfigDrafts((prev) => ({
+                                  ...prev,
+                                  [field.key]: e.target.value,
+                                }))
+                              }
+                              placeholder={
+                                field.defaultValue ?? field.description ?? ""
+                              }
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Global Per-App Switches */}
+                <div className={s.sectionCard}>
+                  <div className={s.sectionTitle}>全局整包启停</div>
+                  <div className={s.appGrid}>
+                    {visibleSkillApps.map((app) => {
+                      const enabled = (
+                        globalEnabledByPlugin[selectedPlugin.id] ?? []
+                      ).includes(app.id);
+                      const isNativeCapable = NATIVE_CAPABLE_APPS.has(app.id);
+                      return (
+                        <div key={app.id} className={s.appRow}>
                           <div className={s.appInfo}>
                             <span className={s.appName}>
                               <span
                                 className={s.appDot}
-                                style={{ background: meta.accentColor }}
+                                style={{ background: app.accentColor }}
                               />
-                              {meta.label}
+                              {app.label}
                             </span>
                             <span className={s.appModeHint}>
-                              {st.details ?? "组件投射"}
+                              {isNativeCapable
+                                ? "原生挂载 + 组件投射"
+                                : "跨端解包投射 (Skills/MCP)"}
                             </span>
                           </div>
                           <button
                             type="button"
                             role="switch"
-                            aria-checked={st.installed}
-                            className={`${s.switchBtn} ${st.installed ? s.switchBtnOn : ""}`}
+                            aria-checked={enabled}
+                            className={`${s.switchBtn} ${enabled ? s.switchBtnOn : ""}`}
                             onClick={() =>
-                              void handleToggleProjectApp(
-                                selectedPlugin,
-                                st.appId,
-                                st.installed
+                              void togglePluginGlobalApp(
+                                selectedPlugin.id,
+                                app.id
                               )
                             }
                           >
                             <span
-                              className={`${s.switchThumb} ${st.installed ? s.switchThumbOn : ""}`}
+                              className={`${s.switchThumb} ${enabled ? s.switchThumbOn : ""}`}
                             />
                           </button>
                         </div>
                       );
                     })}
                   </div>
-                )}
-              </div>
-            </section>
+                </div>
+
+                {/* Project Scope */}
+                <div className={s.sectionCard}>
+                  <div className={s.sectionHeader}>
+                    <span className={s.sectionTitle}>项目级整包组件装配</span>
+                    <div className={s.actions}>
+                      <select
+                        className={s.select}
+                        value={claudeMcpMode}
+                        onChange={(e) =>
+                          setClaudeMcpMode(
+                            e.target.value as ClaudeProjectMcpMode
+                          )
+                        }
+                      >
+                        <option value="local">
+                          Claude MCP: local 本机私有
+                        </option>
+                        <option value="project">
+                          Claude MCP: project (.mcp.json)
+                        </option>
+                      </select>
+                      <button
+                        type="button"
+                        className={s.btn}
+                        onClick={async () => {
+                          try {
+                            const p = await open({
+                              directory: true,
+                              multiple: false,
+                            });
+                            if (p) setSelectedProjectPath(p as string);
+                          } catch {
+                            // ignore
+                          }
+                        }}
+                      >
+                        <FolderPlus size={13} /> 选择项目
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={s.actions}>
+                    {projects.filter((p) => p.path).length > 0 && (
+                      <select
+                        className={s.select}
+                        value={selectedProjectPath}
+                        onChange={(e) => setSelectedProjectPath(e.target.value)}
+                      >
+                        <option value="">-- 选择已保存项目 --</option>
+                        {projects
+                          .filter((p) => p.path)
+                          .map((proj) => (
+                            <option key={proj.id} value={proj.path ?? ""}>
+                              {proj.name}
+                            </option>
+                          ))}
+                      </select>
+                    )}
+                    <input
+                      className={s.input}
+                      value={selectedProjectPath}
+                      onChange={(e) => setSelectedProjectPath(e.target.value)}
+                      placeholder="输入或选择项目本地根目录…"
+                    />
+                  </div>
+
+                  {selectedProjectPath.trim() && (
+                    <div className={s.appGrid}>
+                      {projectStatuses.map((st) => {
+                        const meta = getAppMeta(st.appId);
+                        if (!meta) return null;
+                        return (
+                          <div key={st.appId} className={s.appRow}>
+                            <div className={s.appInfo}>
+                              <span className={s.appName}>
+                                <span
+                                  className={s.appDot}
+                                  style={{ background: meta.accentColor }}
+                                />
+                                {meta.label}
+                              </span>
+                              <span className={s.appModeHint}>
+                                {st.details ?? "组件投射"}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={st.installed}
+                              className={`${s.switchBtn} ${st.installed ? s.switchBtnOn : ""}`}
+                              onClick={() =>
+                                void handleToggleProjectApp(
+                                  selectedPlugin,
+                                  st.appId,
+                                  st.installed
+                                )
+                              }
+                            >
+                              <span
+                                className={`${s.switchThumb} ${st.installed ? s.switchThumbOn : ""}`}
+                              />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </section>
+            </Drawer>
           )}
         </div>
       )}

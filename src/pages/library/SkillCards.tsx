@@ -1,32 +1,28 @@
-import { type CSSProperties } from "react";
 import { Globe, ExternalLink, Download } from "lucide-react";
 import { type TargetAppMeta } from "../../context/AppContext";
 import { showInFinder } from "../../services/skill";
 import type { Skill, ExternalSkill } from "../../types";
 import s from "../MyLibraryPage.module.css";
 import { getIconColors, getProvenanceBadge } from "../../utils/display";
-import { getCompactAppName } from "./shared";
+import { AppIcon } from "./shared";
 
-// ── Skill Card (left list) ───────────────────────────────────────────────────
+// ── Skill Card (grid) ────────────────────────────────────────────────────────
 export function SkillCard({
   skill,
   selected,
   enabledAppIds,
   visibleApps,
-  onToggleApp,
   onClick,
 }: {
   skill: Skill;
   selected: boolean;
   enabledAppIds: string[];
   visibleApps: TargetAppMeta[];
-  onToggleApp: (appId: string) => void;
   onClick: () => void;
 }) {
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
   const badge = getProvenanceBadge(skill.provenance);
-  const enabledSet = new Set(enabledAppIds);
 
   return (
     <div
@@ -35,69 +31,63 @@ export function SkillCard({
       onClick={onClick}
     >
       <div className={s.cardContent}>
-        {/* 左侧图标容器 */}
         <div
           className={s.cardIcon}
           style={{ background: iconColors.bg, color: iconColors.fg }}
         >
           <span>{initial}</span>
         </div>
-
-        {/* 主体内容 */}
         <div className={s.cardBody}>
           <div className={s.cardHeader}>
-            <span className={s.cardName}>{skill.name}</span>
-            {badge && (
-              <span className={s.cardBadge}>
-                <Globe size={10} /> {badge}
-              </span>
-            )}
+            <span className={s.cardName} title={skill.name}>
+              {skill.name}
+            </span>
           </div>
           <p className={s.cardDesc}>{skill.description || "无描述"}</p>
-          <div className={s.cardFooter}>
-            <span className={s.cardSlug}>{skill.slug}</span>
-            {visibleApps.length > 0 && (
-              <div className={s.cardAppPills}>
-                {visibleApps.map((app) => {
-                  const active = enabledSet.has(app.id);
-                  const pillStyle = {
-                    "--pill-accent": app.accentColor,
-                  } as CSSProperties;
-                  return (
-                    <button
-                      key={app.id}
-                      type="button"
-                      className={`${s.cardAppPill} ${active ? s.cardAppPillActive : ""}`}
-                      style={pillStyle}
-                      title={
-                        active
-                          ? `已在全局 ${app.label} 启用（点击关闭）`
-                          : `点击在全局 ${app.label} 启用 (${app.skillPathLabel})`
-                      }
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onToggleApp(app.id);
-                      }}
-                    >
-                      {app.iconSrc ? (
-                        <img
-                          src={app.iconSrc}
-                          alt=""
-                          className={s.cardAppPillIcon}
-                        />
-                      ) : (
-                        <span className={s.cardAppPillDot} />
-                      )}
-                      <span>{getCompactAppName(app)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </div>
+      <div className={s.cardFooterRow}>
+        {badge ? (
+          <span className={s.cardBadge} title={badge}>
+            <Globe size={10} /> {badge}
+          </span>
+        ) : (
+          <span className={s.cardSlug}>{skill.slug}</span>
+        )}
+        <EnabledAppIcons apps={visibleApps} enabledAppIds={enabledAppIds} />
+      </div>
     </div>
+  );
+}
+
+/** Read-only icons of the apps a resource is enabled in globally. */
+export function EnabledAppIcons({
+  apps,
+  enabledAppIds,
+  max = 5,
+}: {
+  apps: TargetAppMeta[];
+  enabledAppIds: string[];
+  max?: number;
+}) {
+  const enabled = apps.filter((app) => enabledAppIds.includes(app.id));
+  if (enabled.length === 0) {
+    return <span className={s.cardAppsNone}>未启用</span>;
+  }
+  const shown = enabled.slice(0, max);
+  const rest = enabled.length - shown.length;
+  return (
+    <span
+      className={s.cardApps}
+      title={`已全局启用：${enabled.map((app) => app.label).join("、")}`}
+    >
+      {shown.map((app) => (
+        <span key={app.id} className={s.cardAppIcon}>
+          <AppIcon app={app} />
+        </span>
+      ))}
+      {rest > 0 && <span className={s.cardAppMore}>+{rest}</span>}
+    </span>
   );
 }
 

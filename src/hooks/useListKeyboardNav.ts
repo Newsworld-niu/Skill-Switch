@@ -10,7 +10,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 /**
  * ↑/↓ moves the selection through `ids` when focus is not in a text field and
- * no modal is open. The newly selected card is scrolled into view if it carries
+ * no modal (other than the detail drawer) is open. The newly selected card is scrolled into view if it carries
  * `data-list-id={id}`.
  */
 export function useListKeyboardNav(
@@ -23,7 +23,9 @@ export function useListKeyboardNav(
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
       if (isTypingTarget(event.target) || ids.length === 0) return;
-      if (document.querySelector("[data-modal-overlay]")) return;
+      // The detail drawer is not a blocking modal: ↑/↓ keeps browsing behind it.
+      if (document.querySelector("[data-modal-overlay]:not([data-drawer])"))
+        return;
 
       event.preventDefault();
       const current = selectedId ? ids.indexOf(selectedId) : -1;

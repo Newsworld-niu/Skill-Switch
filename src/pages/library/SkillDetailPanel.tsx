@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ArrowLeft,
   ExternalLink,
+  Check,
 } from "lucide-react";
 import { useSkills } from "../../context/SkillContext";
 import {
@@ -38,6 +39,7 @@ import {
   readExternalSkillContent,
 } from "../../services/skill";
 import { IconButton } from "../../components/ui/IconButton";
+import { FolderPicker } from "../../components/ui/FolderedGrid";
 import type {
   Skill,
   SkillDirectoryListing,
@@ -613,6 +615,7 @@ export function DetailPanel({
             </div>
           </div>
           <div className={s.detailActions}>
+            <FolderPicker kind="skill" itemId={skill.id} />
             <IconButton
               icon={<ExternalLink size={16} />}
               variant="default"
@@ -669,37 +672,41 @@ export function DetailPanel({
             {/* 全局级别 */}
             <div className={s.enableSection}>
               <div className={s.enableSectionLabel}>
-                <Globe size={14} /> 全局级别{" "}
-                <span className={s.enableSectionHint}>
-                  (所有项目生效 · 各客户端完全独立)
-                </span>
+                <Globe size={14} /> 全局启用
+                <span className={s.enableSectionHint}>对所有项目生效</span>
               </div>
               <div className={s.globalApps}>
-                {visibleSkillApps.map((a) => (
-                  <label key={a.id} className={s.globalAppItem}>
-                    <input
-                      type="checkbox"
-                      checked={enabledGlobalSet.has(a.id)}
-                      onChange={() => void toggleSkillGlobalApp(skill.id, a.id)}
-                      style={{ accentColor: a.accentColor }}
-                    />
-                    <AppIcon app={a} />
-                    <div>
-                      <div className={s.globalAppName}>{a.label}</div>
-                      <div className={s.globalAppPath}>{a.skillPathLabel}</div>
-                    </div>
-                  </label>
-                ))}
+                {visibleSkillApps.map((a) => {
+                  const on = enabledGlobalSet.has(a.id);
+                  return (
+                    <label
+                      key={a.id}
+                      className={`${s.globalAppItem} ${on ? s.globalAppItemOn : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className={s.visuallyHidden}
+                        checked={on}
+                        onChange={() =>
+                          void toggleSkillGlobalApp(skill.id, a.id)
+                        }
+                      />
+                      <AppIcon app={a} />
+                      <span className={s.globalAppName}>{a.label}</span>
+                      <span className={s.globalAppCheck}>
+                        {on && <Check size={12} strokeWidth={3} />}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
             {/* 项目级别 */}
             <div className={s.enableSection}>
               <div className={s.enableSectionLabel}>
-                <Folder size={14} /> 项目级别{" "}
-                <span className={s.enableSectionHint}>
-                  (仅特定项目生效 · 同目录客户端自动合并防误删)
-                </span>
+                <Folder size={14} /> 项目启用
+                <span className={s.enableSectionHint}>仅对指定项目生效</span>
                 <button className={s.addProjectBtn} onClick={addProjectEnable}>
                   <Plus size={14} /> 添加项目
                 </button>
@@ -754,15 +761,10 @@ export function DetailPanel({
                                 {group.combinedLabel}
                                 {group.isShared && (
                                   <span className={s.sharedPathBadge}>
-                                    共用 {group.relPathLabel}
+                                    共用目录
                                   </span>
                                 )}
                               </span>
-                              {!group.isShared && (
-                                <span className={s.projectAppSub}>
-                                  {group.relPathLabel}
-                                </span>
-                              )}
                             </div>
                           </label>
                         );
@@ -772,7 +774,7 @@ export function DetailPanel({
                 ))}
                 {projectEnables.length === 0 && (
                   <div className={s.noProjects}>
-                    暂无项目级别配置，点击上方按钮添加
+                    还没有添加项目。点击「添加项目」选择一个项目目录。
                   </div>
                 )}
               </div>

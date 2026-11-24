@@ -5,7 +5,6 @@ import {
   Clock,
   Download,
   ExternalLink,
-  FileText,
   Folder,
   GitBranch,
   Globe,
@@ -15,6 +14,7 @@ import {
   Search,
   Trash2,
   X,
+  Check,
 } from "lucide-react";
 import { useApps } from "../context/AppContext";
 import { useSlashCommands } from "../context/SlashCommandContext";
@@ -43,7 +43,10 @@ import type {
 import modalStyles from "../components/layout/AppShell.module.css";
 import s from "./MyLibraryPage.module.css";
 import { useConfirm } from "../components/ui/ConfirmDialog";
+import { AppIcon } from "./library/shared";
 import { useListKeyboardNav } from "../hooks/useListKeyboardNav";
+import { Drawer } from "../components/ui/Drawer";
+import { FolderedGrid, FolderPicker } from "../components/ui/FolderedGrid";
 import {
   getIconColors,
   formatDate,
@@ -93,19 +96,22 @@ function CommandCard({
         </div>
         <div className={s.cardBody}>
           <div className={s.cardHeader}>
-            <span className={s.cardName}>{command.name}</span>
-            {badge && (
-              <span className={s.cardBadge}>
-                <Globe size={10} /> {badge}
-              </span>
-            )}
+            <span className={s.cardName} title={command.name}>
+              /{command.name}
+            </span>
           </div>
           <p className={s.cardDesc}>{command.description || "无描述"}</p>
-          <div className={s.cardFooter}>
-            <span className={s.cardSlug}>{command.slug}</span>
-            <span className={s.cardBadgeExternal}>{scopeBadgeLabel}</span>
-          </div>
         </div>
+      </div>
+      <div className={s.cardFooterRow}>
+        {badge ? (
+          <span className={s.cardBadge} title={badge}>
+            <Globe size={10} /> {badge}
+          </span>
+        ) : (
+          <span className={s.cardSlug}>{command.slug}</span>
+        )}
+        <span className={s.cardAppsNone}>{scopeBadgeLabel}</span>
       </div>
     </div>
   );
@@ -177,7 +183,7 @@ function ExternalCommandCard({
 
 function LoadingSkeleton() {
   return (
-    <div className={s.list}>
+    <div className={s.grid}>
       {[1, 2, 3, 4].map((item) => (
         <div key={item} className={s.card}>
           <div className={s.cardContent}>
@@ -521,6 +527,7 @@ function SlashCommandDetail({
             </div>
           </div>
           <div className={s.detailActions}>
+            <FolderPicker kind="slash-command" itemId={command.id} />
             <IconButton
               icon={<ExternalLink size={16} />}
               variant="default"
@@ -567,33 +574,38 @@ function SlashCommandDetail({
           <div className={s.tabContent}>
             <div className={s.enableSection}>
               <div className={s.enableSectionLabel}>
-                <Globe size={14} /> 全局级别{" "}
-                <span className={s.enableSectionHint}>(所有项目生效)</span>
+                <Globe size={14} /> 全局启用
+                <span className={s.enableSectionHint}>对所有项目生效</span>
               </div>
               <div className={s.globalApps}>
-                {visibleCommandApps.map((app) => (
-                  <label key={app.id} className={s.globalAppItem}>
-                    <input
-                      type="checkbox"
-                      checked={!!globalApps[app.id]}
-                      onChange={() => void toggleGlobalApp(app.id)}
-                      style={{ accentColor: app.accentColor }}
-                    />
-                    <div>
-                      <div className={s.globalAppName}>{app.label}</div>
-                      <div className={s.globalAppPath}>
-                        {app.commandPathLabel}
-                      </div>
-                    </div>
-                  </label>
-                ))}
+                {visibleCommandApps.map((app) => {
+                  const on = !!globalApps[app.id];
+                  return (
+                    <label
+                      key={app.id}
+                      className={`${s.globalAppItem} ${on ? s.globalAppItemOn : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className={s.visuallyHidden}
+                        checked={on}
+                        onChange={() => void toggleGlobalApp(app.id)}
+                      />
+                      <AppIcon app={app} />
+                      <span className={s.globalAppName}>{app.label}</span>
+                      <span className={s.globalAppCheck}>
+                        {on && <Check size={12} strokeWidth={3} />}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
             <div className={s.enableSection}>
               <div className={s.enableSectionLabel}>
-                <Folder size={14} /> 项目级别{" "}
-                <span className={s.enableSectionHint}>(仅特定项目生效)</span>
+                <Folder size={14} /> 项目启用
+                <span className={s.enableSectionHint}>仅对指定项目生效</span>
                 <button className={s.addProjectBtn} onClick={addProjectEnable}>
                   <Plus size={14} /> 添加项目
                 </button>
@@ -1012,33 +1024,26 @@ export function MySlashCommandsPage({
         ) ?? null)
       : null;
 
+  // Details open only on click: close the drawer when its item disappears.
   useEffect(() => {
-    if (activeCommandMode === "external") return;
-    if (filteredCommands.length === 0) {
+    if (
+      selectedId !== null &&
+      !commands.some((command) => command.id === selectedId)
+    ) {
       setSelectedId(null);
-      return;
     }
-    if (!filteredCommands.some((command) => command.id === selectedId)) {
-      setSelectedId(filteredCommands[0].id);
-    }
-  }, [filteredCommands, selectedId, activeCommandMode]);
+  }, [commands, selectedId]);
 
   useEffect(() => {
-    if (activeCommandMode !== "external") {
-      setSelectedExternalKey(null);
-      return;
-    }
-    if (filteredExternalCommands.length === 0) {
-      setSelectedExternalKey(null);
-      return;
-    }
     if (
-      !filteredExternalCommands.some(
-        (command) => `${command.appId}:${command.slug}` === selectedExternalKey
-      )
+      selectedExternalKey !== null &&
+      (activeCommandMode !== "external" ||
+        !filteredExternalCommands.some(
+          (command) =>
+            `${command.appId}:${command.slug}` === selectedExternalKey
+        ))
     ) {
-      const first = filteredExternalCommands[0];
-      setSelectedExternalKey(`${first.appId}:${first.slug}`);
+      setSelectedExternalKey(null);
     }
   }, [filteredExternalCommands, selectedExternalKey, activeCommandMode]);
 
@@ -1068,11 +1073,11 @@ export function MySlashCommandsPage({
     const success = await remove(selectedCommand.id);
     if (success) {
       toast.resolve(tid, "success", "已删除");
-      setSelectedId(filteredCommands[0]?.id ?? null);
+      setSelectedId(null);
     } else {
       toast.resolve(tid, "error", "删除失败");
     }
-  }, [confirm, filteredCommands, remove, selectedCommand, toast]);
+  }, [confirm, remove, selectedCommand, toast]);
 
   const handleImport = useCallback(async () => {
     if (importing) return;
@@ -1145,14 +1150,18 @@ export function MySlashCommandsPage({
     }
   }, [selectedCommand, toast]);
 
+  // ↑/↓ browses neighbouring items only while the detail drawer is open.
+  const drawerOpen = !!selectedCommand || !!selectedExternal;
   const keyboardNavIds = useMemo(
     () =>
-      activeCommandMode === "external"
-        ? filteredExternalCommands.map(
-            (command) => `${command.appId}:${command.slug}`
-          )
-        : filteredCommands.map((command) => command.id),
-    [activeCommandMode, filteredCommands, filteredExternalCommands]
+      !drawerOpen
+        ? []
+        : activeCommandMode === "external"
+          ? filteredExternalCommands.map(
+              (command) => `${command.appId}:${command.slug}`
+            )
+          : filteredCommands.map((command) => command.id),
+    [drawerOpen, activeCommandMode, filteredCommands, filteredExternalCommands]
   );
   useListKeyboardNav(
     keyboardNavIds,
@@ -1172,41 +1181,51 @@ export function MySlashCommandsPage({
         );
       }
 
-      return filteredExternalCommands.map((command) => {
-        const key = `${command.appId}:${command.slug}`;
-        const sourceLabel = getAppMeta(command.appId)?.label ?? command.appId;
-        return (
-          <ExternalCommandCard
-            key={key}
-            command={command}
-            selected={selectedExternalKey === key}
-            sourceLabel={sourceLabel}
-            onClick={() => setSelectedExternalKey(key)}
-            onImport={() => void handleImportExternal(command)}
-          />
-        );
-      });
-    }
-
-    if (filteredCommands.length === 0) {
       return (
-        <div className={s.empty}>
-          {searchQuery
-            ? "自建 Commands 中未找到匹配项"
-            : "还没有 Command，点击「创建」添加"}
+        <div className={s.grid}>
+          {filteredExternalCommands.map((command) => {
+            const key = `${command.appId}:${command.slug}`;
+            const sourceLabel =
+              getAppMeta(command.appId)?.label ?? command.appId;
+            return (
+              <ExternalCommandCard
+                key={key}
+                command={command}
+                selected={selectedExternalKey === key}
+                sourceLabel={sourceLabel}
+                onClick={() => setSelectedExternalKey(key)}
+                onImport={() => void handleImportExternal(command)}
+              />
+            );
+          })}
         </div>
       );
     }
 
-    return filteredCommands.map((command) => (
-      <CommandCard
-        key={command.id}
-        command={command}
-        selected={selectedId === command.id}
-        scopeBadgeLabel={scopeBadgeLabel}
-        onClick={() => setSelectedId(command.id)}
+    return (
+      <FolderedGrid
+        kind="slash-command"
+        items={filteredCommands}
+        getId={(command) => command.id}
+        searching={!!searchQuery.trim()}
+        empty={
+          <div className={s.empty}>
+            {searchQuery
+              ? "自建 Commands 中未找到匹配项"
+              : "还没有 Command，点击「创建」添加"}
+          </div>
+        }
+        renderItem={(command) => (
+          <CommandCard
+            key={command.id}
+            command={command}
+            selected={selectedId === command.id}
+            scopeBadgeLabel={scopeBadgeLabel}
+            onClick={() => setSelectedId(command.id)}
+          />
+        )}
       />
-    ));
+    );
   };
 
   return (
@@ -1270,44 +1289,36 @@ export function MySlashCommandsPage({
       )}
 
       <div className={s.body}>
-        {loading ? (
-          <LoadingSkeleton />
-        ) : (
-          <div className={s.list}>
-            <div className={s.groupTabPanel}>{renderList()}</div>
-          </div>
-        )}
+        <div className={s.list}>
+          {loading ? <LoadingSkeleton /> : renderList()}
+        </div>
+      </div>
 
-        {selectedCommand && (
+      {selectedCommand && (
+        <Drawer
+          label={selectedCommand.name}
+          onClose={() => setSelectedId(null)}
+        >
           <SlashCommandDetail
             key={selectedCommand.id}
             command={selectedCommand}
             onDelete={handleDelete}
             onExport={handleExport}
           />
-        )}
-        {!selectedCommand &&
-          activeCommandMode === "external" &&
-          selectedExternal && (
-            <ExternalCommandDetail
-              key={`${selectedExternal.appId}:${selectedExternal.slug}`}
-              command={selectedExternal}
-              onImport={() => handleImportExternal(selectedExternal)}
-            />
-          )}
-        {!selectedCommand &&
-          (activeCommandMode !== "external" || !selectedExternal) && (
-            <div className={s.detailPlaceholder}>
-              <div className={s.detailPlaceholderIcon}>
-                <FileText size={18} />
-              </div>
-              <div className={s.detailPlaceholderTitle}>Commands</div>
-              <div className={s.detailPlaceholderHint}>
-                选择一个命令查看启用状态和 COMMAND.md。
-              </div>
-            </div>
-          )}
-      </div>
+        </Drawer>
+      )}
+      {!selectedCommand && selectedExternal && (
+        <Drawer
+          label={selectedExternal.name}
+          onClose={() => setSelectedExternalKey(null)}
+        >
+          <ExternalCommandDetail
+            key={`${selectedExternal.appId}:${selectedExternal.slug}`}
+            command={selectedExternal}
+            onImport={() => handleImportExternal(selectedExternal)}
+          />
+        </Drawer>
+      )}
 
       {showCreateModal && (
         <CreateSlashCommandModal

@@ -339,6 +339,29 @@ pub struct RepoLibrary {
     pub mcp_servers: Vec<McpServerRecord>,
     #[serde(default)]
     pub plugins: Vec<PluginRecord>,
+    /// User-defined display folders. Purely organisational: never affects install paths.
+    #[serde(default)]
+    pub folders: Vec<LibraryFolder>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LibraryFolderKind {
+    Skill,
+    SlashCommand,
+    Mcp,
+    Plugin,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryFolder {
+    pub id: String,
+    pub name: String,
+    pub kind: LibraryFolderKind,
+    /// Ids of the items in this folder; an item belongs to at most one folder per kind.
+    #[serde(default)]
+    pub item_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
