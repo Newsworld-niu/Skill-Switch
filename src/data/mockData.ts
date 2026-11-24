@@ -1,10 +1,14 @@
 // ── Mock data shared across all pages ──────────────────────────────────────
 
-export interface SkillApp { id: string; label: string; color: string }
+export interface SkillApp {
+  id: string;
+  label: string;
+  color: string;
+}
 export const APPS: SkillApp[] = [
-  { id: "claude",  label: "Claude", color: "#2563eb" },
-  { id: "codex",   label: "Codex",  color: "#7c3aed" },
-  { id: "cursor",  label: "Cursor", color: "#0891b2" },
+  { id: "claude", label: "Claude", color: "#2563eb" },
+  { id: "codex", label: "Codex", color: "#7c3aed" },
+  { id: "cursor", label: "Cursor", color: "#0891b2" },
 ];
 
 export interface MockProject {
@@ -35,7 +39,8 @@ export const MOCK_SKILLS: MockSkill[] = [
   {
     id: "gstack",
     name: "gstack",
-    description: "Git workflow automation and CI/CD integration for modern development",
+    description:
+      "Git workflow automation and CI/CD integration for modern development",
     gradient: ["#22c55e", "#16a34a"],
     version: "v2.1.0",
     nextVersion: "v2.2.0",
@@ -52,8 +57,16 @@ export const MOCK_SKILLS: MockSkill[] = [
       { type: "fix", text: "修复: Windows 路径问题" },
     ],
     projects: [
-      { name: "cc-switch-main", path: "~/Downloads/cc-switch-main", apps: ["claude"] },
-      { name: "skillswitch", path: "~/Downloads/cc-switch-main/skillswitch", apps: ["claude", "codex"] },
+      {
+        name: "cc-switch-main",
+        path: "~/Downloads/cc-switch-main",
+        apps: ["claude"],
+      },
+      {
+        name: "skillswitch",
+        path: "~/Downloads/cc-switch-main/skillswitch",
+        apps: ["claude", "codex"],
+      },
     ],
   },
   {

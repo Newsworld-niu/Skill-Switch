@@ -35,7 +35,8 @@ export function UpdaterProvider({ children }: { children: ReactNode }) {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<UpdateProgress | null>(null);
+  const [downloadProgress, setDownloadProgress] =
+    useState<UpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Load current version on mount

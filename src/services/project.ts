@@ -1,9 +1,5 @@
 import { tauriInvoke, type Result } from "./tauri";
-import type {
-  Project,
-  CreateProjectInput,
-  UpdateProjectInput,
-} from "../types";
+import type { Project, CreateProjectInput, UpdateProjectInput } from "../types";
 
 /**
  * List all projects
@@ -17,7 +13,9 @@ export async function projectList(): Promise<Result<Project[]>> {
  * Create a new project
  * Maps to backend: project_create(CreateProjectInput) -> LegacyProjectDto
  */
-export async function projectCreate(input: CreateProjectInput): Promise<Result<Project>> {
+export async function projectCreate(
+  input: CreateProjectInput
+): Promise<Result<Project>> {
   return tauriInvoke<Project>("project_create", { input });
 }
 
@@ -25,7 +23,9 @@ export async function projectCreate(input: CreateProjectInput): Promise<Result<P
  * Update an existing project
  * Maps to backend: project_update(UpdateProjectInput) -> LegacyProjectDto
  */
-export async function projectUpdate(input: UpdateProjectInput): Promise<Result<Project>> {
+export async function projectUpdate(
+  input: UpdateProjectInput
+): Promise<Result<Project>> {
   return tauriInvoke<Project>("project_update", { input });
 }
 

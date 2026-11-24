@@ -42,7 +42,9 @@ export async function downloadAndInstallUpdate(
   }
 
   try {
-    const result = await tauriInvoke<UpdateResult>("download_and_install_update");
+    const result = await tauriInvoke<UpdateResult>(
+      "download_and_install_update"
+    );
     return result;
   } finally {
     if (unlisten) {

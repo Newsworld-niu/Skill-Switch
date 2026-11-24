@@ -19,15 +19,21 @@ export function IconButton({
   ...props
 }: IconButtonProps) {
   const sizeClass = size === "sm" ? s.sizeSm : s.sizeMd;
-  const variantClass = variant === "danger" ? s.danger
-    : variant === "success" ? s.success
-    : variant === "primary" ? s.primary
-    : "";
+  const variantClass =
+    variant === "danger"
+      ? s.danger
+      : variant === "success"
+        ? s.success
+        : variant === "primary"
+          ? s.primary
+          : "";
 
   return (
     <button
       type={type}
-      className={[s.button, sizeClass, variantClass, className].filter(Boolean).join(" ")}
+      className={[s.button, sizeClass, variantClass, className]
+        .filter(Boolean)
+        .join(" ")}
       {...props}
     >
       {icon}

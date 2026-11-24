@@ -1,6 +1,20 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { getCurrentWindow, type Theme as TauriTheme } from "@tauri-apps/api/window";
-import { settingsGet, settingsSet, defaultSettings } from "../services/settings";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from "react";
+import {
+  getCurrentWindow,
+  type Theme as TauriTheme,
+} from "@tauri-apps/api/window";
+import {
+  settingsGet,
+  settingsSet,
+  defaultSettings,
+} from "../services/settings";
 import type { AppSettings } from "../services/settings";
 import type { BackupSource } from "../types";
 
@@ -40,7 +54,10 @@ function writeBackupSourceCache(source: BackupSource | null): void {
       window.localStorage.removeItem(BACKUP_SOURCE_STORAGE_KEY);
       return;
     }
-    window.localStorage.setItem(BACKUP_SOURCE_STORAGE_KEY, JSON.stringify(source));
+    window.localStorage.setItem(
+      BACKUP_SOURCE_STORAGE_KEY,
+      JSON.stringify(source)
+    );
   } catch {
     // Ignore storage failures. Settings still persist through the backend.
   }
@@ -49,14 +66,19 @@ function writeBackupSourceCache(source: BackupSource | null): void {
 type ResolvedTheme = Exclude<AppSettings["theme"], "system">;
 
 function resolveFallbackTheme(): ResolvedTheme {
-  if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+  if (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
     return "dark";
   }
 
   return "light";
 }
 
-function resolveTauriTheme(theme: TauriTheme | null | undefined): ResolvedTheme {
+function resolveTauriTheme(
+  theme: TauriTheme | null | undefined
+): ResolvedTheme {
   return theme === "dark" ? "dark" : "light";
 }
 
@@ -81,7 +103,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const result = await settingsGet();
       if (result.ok) {
         const cachedBackupSource = readBackupSourceCache();
-        const backupSource = result.value.backupSource ?? cachedBackupSource ?? null;
+        const backupSource =
+          result.value.backupSource ?? cachedBackupSource ?? null;
         setSettings({ ...result.value, backupSource });
         writeBackupSourceCache(backupSource);
       } else {
@@ -157,22 +180,27 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
   }, [settings.theme]);
 
-  const updateSettings = useCallback(async (updates: Partial<AppSettings>): Promise<boolean> => {
-    const newSettings = { ...settings, ...updates };
-    const result = await settingsSet(newSettings);
-    if (result.ok) {
-      setSettings(newSettings);
-      if ("backupSource" in updates) {
-        writeBackupSourceCache(newSettings.backupSource ?? null);
+  const updateSettings = useCallback(
+    async (updates: Partial<AppSettings>): Promise<boolean> => {
+      const newSettings = { ...settings, ...updates };
+      const result = await settingsSet(newSettings);
+      if (result.ok) {
+        setSettings(newSettings);
+        if ("backupSource" in updates) {
+          writeBackupSourceCache(newSettings.backupSource ?? null);
+        }
+        return true;
       }
-      return true;
-    }
-    setError(result.error);
-    return false;
-  }, [settings]);
+      setError(result.error);
+      return false;
+    },
+    [settings]
+  );
 
   return (
-    <SettingsContext.Provider value={{ settings, loading, error, updateSettings }}>
+    <SettingsContext.Provider
+      value={{ settings, loading, error, updateSettings }}
+    >
       {children}
     </SettingsContext.Provider>
   );
