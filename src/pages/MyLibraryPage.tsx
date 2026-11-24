@@ -419,6 +419,7 @@ export function MyLibraryPage({
           kind="skill"
           items={filteredSelfCreated}
           getId={(skill) => skill.id}
+          getLabel={(skill) => skill.name}
           searching={!!searchQuery.trim()}
           empty={
             <div className={s.empty}>
