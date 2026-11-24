@@ -25,14 +25,15 @@ pub fn set_library_folders(
 }
 
 /// Returns whether anything changed. Blank names are dropped, ids are generated
-/// when missing, and an item stays only in the first folder that lists it.
+/// when missing, an item stays only in the first folder that lists it, and a
+/// parent that is missing or would form a cycle is reset to top level.
 pub(crate) fn replace_folders_of_kind(
     all: &mut Vec<LibraryFolder>,
     kind: LibraryFolderKind,
     incoming: Vec<LibraryFolder>,
 ) -> bool {
     let mut seen_items = HashSet::new();
-    let normalized: Vec<LibraryFolder> = incoming
+    let mut normalized: Vec<LibraryFolder> = incoming
         .into_iter()
         .filter_map(|folder| {
             let name = folder.name.trim().to_string();
@@ -49,14 +50,17 @@ pub(crate) fn replace_folders_of_kind(
                 .into_iter()
                 .filter(|item| seen_items.insert(item.clone()))
                 .collect();
+            let parent_id = folder.parent_id.filter(|p| !p.trim().is_empty());
             Some(LibraryFolder {
                 id,
                 name,
                 kind,
+                parent_id,
                 item_ids,
             })
         })
         .collect();
+    fix_parents(&mut normalized);
 
     let before = serde_json::to_string(&*all).unwrap_or_default();
     let insert_at = all
@@ -69,6 +73,36 @@ pub(crate) fn replace_folders_of_kind(
     serde_json::to_string(&*all).unwrap_or_default() != before
 }
 
+fn fix_parents(folders: &mut [LibraryFolder]) {
+    let ids: HashSet<String> = folders.iter().map(|f| f.id.clone()).collect();
+    for folder in folders.iter_mut() {
+        if folder
+            .parent_id
+            .as_ref()
+            .is_some_and(|p| p == &folder.id || !ids.contains(p))
+        {
+            folder.parent_id = None;
+        }
+    }
+    // Break cycles: walk up from each folder; if we revisit it, detach it.
+    for index in 0..folders.len() {
+        let start = folders[index].id.clone();
+        let mut current = folders[index].parent_id.clone();
+        let mut steps = 0;
+        while let Some(parent) = current {
+            if parent == start || steps > folders.len() {
+                folders[index].parent_id = None;
+                break;
+            }
+            current = folders
+                .iter()
+                .find(|f| f.id == parent)
+                .and_then(|f| f.parent_id.clone());
+            steps += 1;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,8 +112,45 @@ mod tests {
             id: id.into(),
             name: name.into(),
             kind,
+            parent_id: None,
             item_ids: items.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    fn child(id: &str, parent: &str) -> LibraryFolder {
+        LibraryFolder {
+            parent_id: Some(parent.into()),
+            ..folder(id, id, LibraryFolderKind::Skill, &[])
+        }
+    }
+
+    #[test]
+    fn keeps_valid_nesting_and_drops_bad_parents() {
+        let mut all = Vec::new();
+        replace_folders_of_kind(
+            &mut all,
+            LibraryFolderKind::Skill,
+            vec![
+                folder("a", "a", LibraryFolderKind::Skill, &[]),
+                child("b", "a"),
+                child("c", "missing"),
+                child("d", "d"),
+                child("e", "f"),
+                child("f", "e"),
+            ],
+        );
+        let parent = |id: &str| all.iter().find(|f| f.id == id).unwrap().parent_id.clone();
+        assert_eq!(parent("b").as_deref(), Some("a"));
+        assert_eq!(parent("c"), None);
+        assert_eq!(parent("d"), None);
+        // The e <-> f cycle is broken; at least one is at top level.
+        assert!(parent("e").is_none() || parent("f").is_none());
+    }
+
+    #[test]
+    fn top_level_folder_serializes_without_parent() {
+        let json = serde_json::to_string(&folder("a", "A", LibraryFolderKind::Skill, &[])).unwrap();
+        assert!(!json.contains("parentId"));
     }
 
     #[test]

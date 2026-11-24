@@ -359,6 +359,9 @@ pub struct LibraryFolder {
     pub id: String,
     pub name: String,
     pub kind: LibraryFolderKind,
+    /// Containing folder (same kind); `None` means top level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
     /// Ids of the items in this folder; an item belongs to at most one folder per kind.
     #[serde(default)]
     pub item_ids: Vec<String>,

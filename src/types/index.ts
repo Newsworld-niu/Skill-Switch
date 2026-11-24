@@ -174,6 +174,8 @@ export interface LibraryFolder {
   id: string;
   name: string;
   kind: LibraryFolderKind;
+  /** Containing folder (same kind); absent/null means top level. */
+  parentId?: string | null;
   itemIds: string[];
 }
 
