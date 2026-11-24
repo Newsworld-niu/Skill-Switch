@@ -465,6 +465,7 @@ export function PluginsPage({ onNavigate }: Props) {
               kind="plugin"
               items={filteredPlugins}
               getId={(plugin) => plugin.id}
+              getLabel={(plugin) => plugin.name}
               searching={!!query.trim()}
               empty={null}
               renderItem={(plugin) => {

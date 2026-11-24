@@ -452,6 +452,7 @@ export function McpServersPage({ activeMode, onChangeMode }: Props) {
                   kind="mcp"
                   items={filteredServers}
                   getId={(srv) => srv.id}
+                  getLabel={(srv) => srv.name}
                   searching={!!query.trim()}
                   empty={null}
                   renderItem={(srv) => {

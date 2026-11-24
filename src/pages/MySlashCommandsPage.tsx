@@ -1207,6 +1207,7 @@ export function MySlashCommandsPage({
         kind="slash-command"
         items={filteredCommands}
         getId={(command) => command.id}
+        getLabel={(command) => command.name}
         searching={!!searchQuery.trim()}
         empty={
           <div className={s.empty}>
