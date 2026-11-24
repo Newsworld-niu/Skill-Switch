@@ -1,19 +1,68 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
 .toolbar {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: calc(-1 * var(--space-2));
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 28px;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.crumbItem {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.crumbSep {
+  flex-shrink: 0;
+  color: var(--ink-muted);
+}
+
+.crumb {
+  max-width: 220px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.crumb:hover {
+  color: var(--ink);
+  background: var(--canvas-tertiary);
+}
+
+.crumbCurrent {
+  color: var(--ink);
+  font-weight: 700;
+  cursor: default;
 }
 
 .newFolderBtn {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: var(--space-1);
+  margin-left: auto;
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
   font-size: var(--text-xs);
@@ -36,75 +85,101 @@
   gap: var(--space-3);
 }
 
-.group {
+.itemCell {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-.groupHeader {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 28px;
-}
-
-.groupToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-1) var(--space-2) var(--space-1) 0;
-  color: var(--ink-secondary);
+}
+
+.itemCell > * {
+  flex: 1;
+}
+
+/* Finder-style folder icons */
+
+.folderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-2);
+}
+
+.folderTile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: var(--radius-lg);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  transition:
+    background var(--transition-fast),
+    outline-color var(--transition-fast);
+}
+
+.folderTile:hover {
+  background: var(--canvas-tertiary);
+}
+
+.folderOpen {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-2) var(--space-2);
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 
-.chevron {
+.glyph {
+  width: 64px;
+  height: 50px;
   flex-shrink: 0;
-  color: var(--ink-muted);
-  transition: transform var(--transition-fast);
 }
 
-.chevronOpen {
-  transform: rotate(90deg);
+.glyphBack {
+  fill: color-mix(in oklch, var(--accent) 55%, var(--canvas));
 }
 
-.groupIcon {
-  flex-shrink: 0;
-  color: var(--ink-tertiary);
+.glyphFront {
+  fill: color-mix(in oklch, var(--accent) 38%, var(--canvas));
 }
 
-.groupTitle {
+.folderName {
+  max-width: 100%;
   font-size: var(--text-sm);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.groupCount {
+.folderCount {
   font-size: var(--text-xs);
-  font-weight: 600;
   color: var(--ink-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
-.groupActions {
+.folderActions {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
   display: flex;
-  gap: var(--space-1);
+  gap: 2px;
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
 
-.groupHeader:hover .groupActions,
-.groupActions:focus-within {
+.folderTile:hover .folderActions,
+.folderActions:focus-within {
   opacity: 1;
 }
 
-.groupAction {
-  width: 24px;
-  height: 24px;
+.folderAction {
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -113,17 +188,31 @@
   cursor: pointer;
 }
 
-.groupAction:hover {
-  background: var(--canvas-tertiary);
+.folderAction:hover {
+  background: var(--surface-strong);
   color: var(--ink);
 }
 
-.groupActionDanger:hover {
+.folderActionDanger:hover {
   color: var(--danger);
 }
 
-.groupEmpty {
-  padding: var(--space-4);
+.folderTile .nameInput {
+  min-width: 0;
+  width: calc(100% - var(--space-4));
+  margin-bottom: var(--space-2);
+  text-align: center;
+}
+
+.dropOver,
+.dropOver:hover {
+  background: var(--accent-muted);
+  outline-color: var(--accent);
+  color: var(--accent);
+}
+
+.emptyFolder {
+  padding: var(--space-6) var(--space-4);
   border: 1px dashed var(--divider-strong);
   border-radius: var(--radius-lg);
   font-size: var(--text-xs);

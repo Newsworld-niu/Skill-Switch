@@ -16,13 +16,24 @@ interface FolderContextValue {
   folders: LibraryFolder[];
   refresh: () => Promise<void>;
   foldersOf: (kind: LibraryFolderKind) => LibraryFolder[];
-  createFolder: (kind: LibraryFolderKind, name: string) => Promise<void>;
+  createFolder: (
+    kind: LibraryFolderKind,
+    name: string,
+    parentId: string | null
+  ) => Promise<void>;
   renameFolder: (
     kind: LibraryFolderKind,
     id: string,
     name: string
   ) => Promise<void>;
+  /** Deletes a folder; its subfolders and items move up to its parent. */
   deleteFolder: (kind: LibraryFolderKind, id: string) => Promise<void>;
+  /** Moves a folder under `parentId` (null = top level); ignores cycles. */
+  moveFolder: (
+    kind: LibraryFolderKind,
+    id: string,
+    parentId: string | null
+  ) => Promise<void>;
   /** Moves an item into `folderId`, or out of every folder when null. */
   moveItem: (
     kind: LibraryFolderKind,
@@ -33,6 +44,22 @@ interface FolderContextValue {
 
 function ofKind(list: LibraryFolder[], kind: LibraryFolderKind) {
   return list.filter((f) => f.kind === kind);
+}
+
+/** Whether `id` is `ancestorId` or nested anywhere below it. */
+export function isWithin(
+  list: LibraryFolder[],
+  id: string | null,
+  ancestorId: string
+): boolean {
+  const seen = new Set<string>();
+  let current = id;
+  while (current && !seen.has(current)) {
+    if (current === ancestorId) return true;
+    seen.add(current);
+    current = list.find((f) => f.id === current)?.parentId ?? null;
+  }
+  return false;
 }
 
 const FolderContext = createContext<FolderContextValue | null>(null);
@@ -78,12 +105,12 @@ export function FolderProvider({ children }: { children: ReactNode }) {
   );
 
   const createFolder = useCallback(
-    async (kind: LibraryFolderKind, name: string) => {
+    async (kind: LibraryFolderKind, name: string, parentId: string | null) => {
       const trimmed = name.trim();
       if (!trimmed) return;
       await save(kind, [
         ...ofKind(foldersRef.current, kind),
-        { id: crypto.randomUUID(), name: trimmed, kind, itemIds: [] },
+        { id: crypto.randomUUID(), name: trimmed, kind, parentId, itemIds: [] },
       ]);
     },
     [save]
@@ -105,9 +132,35 @@ export function FolderProvider({ children }: { children: ReactNode }) {
 
   const deleteFolder = useCallback(
     async (kind: LibraryFolderKind, id: string) => {
+      const list = ofKind(foldersRef.current, kind);
+      const target = list.find((f) => f.id === id);
+      if (!target) return;
+      const parentId = target.parentId ?? null;
       await save(
         kind,
-        ofKind(foldersRef.current, kind).filter((f) => f.id !== id)
+        list
+          .filter((f) => f.id !== id)
+          .map((f) => {
+            let next = f.parentId === id ? { ...f, parentId } : f;
+            if (f.id === parentId) {
+              next = { ...next, itemIds: [...next.itemIds, ...target.itemIds] };
+            }
+            return next;
+          })
+      );
+    },
+    [save]
+  );
+
+  const moveFolder = useCallback(
+    async (kind: LibraryFolderKind, id: string, parentId: string | null) => {
+      const list = ofKind(foldersRef.current, kind);
+      const target = list.find((f) => f.id === id);
+      if (!target || (target.parentId ?? null) === parentId) return;
+      if (parentId && isWithin(list, parentId, id)) return;
+      await save(
+        kind,
+        list.map((f) => (f.id === id ? { ...f, parentId } : f))
       );
     },
     [save]
@@ -141,6 +194,7 @@ export function FolderProvider({ children }: { children: ReactNode }) {
       createFolder,
       renameFolder,
       deleteFolder,
+      moveFolder,
       moveItem,
     }),
     [
@@ -150,6 +204,7 @@ export function FolderProvider({ children }: { children: ReactNode }) {
       createFolder,
       renameFolder,
       deleteFolder,
+      moveFolder,
       moveItem,
     ]
   );
