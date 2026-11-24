@@ -28,6 +28,8 @@ import type {
   McpTransport,
 } from "../types";
 import s from "./McpServersPage.module.css";
+import { Drawer } from "../components/ui/Drawer";
+import { FolderedGrid, FolderPicker } from "../components/ui/FolderedGrid";
 import { useConfirm } from "../components/ui/ConfirmDialog";
 
 interface Props {
@@ -107,19 +109,11 @@ export function McpServersPage({ activeMode, onChangeMode }: Props) {
     });
   }, [query, servers, transportFilter]);
 
+  // Details open only on click, in a drawer; closes if the server disappears.
   const selectedServer = useMemo(
-    () =>
-      filteredServers.find((item) => item.id === selectedId) ??
-      filteredServers[0] ??
-      null,
-    [filteredServers, selectedId]
+    () => servers.find((item) => item.id === selectedId) ?? null,
+    [servers, selectedId]
   );
-
-  useEffect(() => {
-    if (selectedServer && selectedServer.id !== selectedId) {
-      setSelectedId(selectedServer.id);
-    }
-  }, [selectedId, selectedServer]);
 
   useEffect(() => {
     if (!selectedProjectPath && projects.length > 0) {
@@ -453,352 +447,373 @@ export function McpServersPage({ activeMode, onChangeMode }: Props) {
             </div>
           ) : (
             <div className={s.body}>
-              <aside className={s.listPane}>
-                {filteredServers.map((srv) => {
-                  const enabledApps = globalEnabledByServer[srv.id] ?? [];
-                  const secretSpecs = srv.envSpecs.filter((e) => e.isSecret);
-                  const missingSecrets = secretSpecs.filter(
-                    (e) => !srv.configuredSecretKeys.includes(e.name)
-                  );
-                  return (
-                    <button
-                      key={srv.id}
-                      type="button"
-                      className={`${s.serverCard} ${selectedServer?.id === srv.id ? s.serverCardActive : ""}`}
-                      onClick={() => setSelectedId(srv.id)}
-                    >
-                      <div className={s.cardTop}>
-                        <span className={s.cardTitle}>{srv.name}</span>
-                        <span className={s.transportBadge}>
-                          {srv.transport}
-                        </span>
-                      </div>
-                      {srv.description && (
-                        <div className={s.cardDesc}>{srv.description}</div>
-                      )}
-                      <div className={s.cardMetaRow}>
-                        <span className={s.metaPill}>
-                          全局已启 {enabledApps.length} 端
-                        </span>
-                        {srv.pluginId && (
-                          <span className={s.metaPill}>插件提供</span>
-                        )}
-                        {secretSpecs.length > 0 && (
-                          <span
-                            className={`${s.metaPill} ${missingSecrets.length > 0 ? s.metaPillWarn : s.metaPillSuccess}`}
-                          >
-                            <Lock size={10} />
-                            {missingSecrets.length > 0
-                              ? `待配密钥 ${missingSecrets.length}`
-                              : "本机密钥就绪"}
+              <div className={s.listPane}>
+                <FolderedGrid
+                  kind="mcp"
+                  items={filteredServers}
+                  getId={(srv) => srv.id}
+                  searching={!!query.trim()}
+                  empty={null}
+                  renderItem={(srv) => {
+                    const enabledApps = globalEnabledByServer[srv.id] ?? [];
+                    const secretSpecs = srv.envSpecs.filter((e) => e.isSecret);
+                    const missingSecrets = secretSpecs.filter(
+                      (e) => !srv.configuredSecretKeys.includes(e.name)
+                    );
+                    return (
+                      <button
+                        key={srv.id}
+                        type="button"
+                        className={`${s.serverCard} ${selectedServer?.id === srv.id ? s.serverCardActive : ""}`}
+                        onClick={() => setSelectedId(srv.id)}
+                      >
+                        <div className={s.cardTop}>
+                          <span className={s.cardTitle}>{srv.name}</span>
+                          <span className={s.transportBadge}>
+                            {srv.transport}
                           </span>
+                        </div>
+                        {srv.description && (
+                          <div className={s.cardDesc}>{srv.description}</div>
                         )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </aside>
+                        <div className={s.cardMetaRow}>
+                          <span className={s.metaPill}>
+                            全局已启 {enabledApps.length} 端
+                          </span>
+                          {srv.pluginId && (
+                            <span className={s.metaPill}>插件提供</span>
+                          )}
+                          {secretSpecs.length > 0 && (
+                            <span
+                              className={`${s.metaPill} ${missingSecrets.length > 0 ? s.metaPillWarn : s.metaPillSuccess}`}
+                            >
+                              <Lock size={10} />
+                              {missingSecrets.length > 0
+                                ? `待配密钥 ${missingSecrets.length}`
+                                : "本机密钥就绪"}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  }}
+                />
+              </div>
 
               {selectedServer && (
-                <section className={s.detailPane}>
-                  <div className={s.detailHeader}>
-                    <div>
-                      <div className={s.detailTitle}>{selectedServer.name}</div>
-                      <div className={s.detailSlug}>
-                        标识: {selectedServer.slug} · 协议:{" "}
-                        {selectedServer.transport.toUpperCase()}
-                      </div>
-                    </div>
-
-                    <div className={s.btnRow}>
-                      <button
-                        type="button"
-                        className={s.btn}
-                        onClick={() => openEditModal(selectedServer)}
-                      >
-                        <Edit3 size={13} /> 编辑规格
-                      </button>
-                      <button
-                        type="button"
-                        className={`${s.btn} ${s.btnDanger}`}
-                        onClick={async () => {
-                          const ok = await confirm({
-                            title: `删除 MCP「${selectedServer.name}」？`,
-                            message:
-                              "会从已启用的全局客户端中移除，并同步到备份仓库。",
-                            confirmLabel: "删除",
-                            danger: true,
-                          });
-                          if (ok) void remove(selectedServer.id);
-                        }}
-                      >
-                        <Trash2 size={13} /> 删除
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Connection Spec */}
-                  <div className={s.sectionCard}>
-                    <div className={s.sectionTitle}>运行入口与参数</div>
-                    <div className={s.codeBox}>
-                      {selectedServer.transport === "stdio"
-                        ? `${selectedServer.command ?? ""} ${selectedServer.args.join(" ")}`
-                        : (selectedServer.url ?? "")}
-                    </div>
-                  </div>
-
-                  {/* Secret Isolation Vault */}
-                  {selectedServer.envSpecs.length > 0 && (
-                    <div className={s.sectionCard}>
-                      <div className={s.sectionTitleRow}>
-                        <span className={s.sectionTitle}>
-                          <ShieldCheck size={15} /> 环境变量与本机私密凭据
-                        </span>
-                        {Object.keys(secretInputs).length > 0 && (
-                          <button
-                            type="button"
-                            className={s.btnPrimary}
-                            onClick={() =>
-                              void handleSaveInlineSecrets(selectedServer)
-                            }
-                          >
-                            保存本机密钥
-                          </button>
-                        )}
-                      </div>
-
-                      <div className={s.securityNotice}>
-                        <Lock size={13} />
-                        <span>
-                          标记为敏感的变量值仅保存在本机{" "}
-                          <code>local-secrets.json</code>（权限 0600），绝不写入
-                          Git 备份仓；写入共享项目配置时自动转为{" "}
-                          <code>{"${ENV_VAR}"}</code> 占位符。
-                        </span>
-                      </div>
-
-                      {selectedServer.envSpecs.map((spec) => {
-                        const isConfigured =
-                          selectedServer.configuredSecretKeys.includes(
-                            spec.name
-                          );
-                        return (
-                          <div key={spec.name} className={s.secretRow}>
-                            <span className={s.secretKey}>{spec.name}</span>
-                            {spec.isSecret ? (
-                              <>
-                                <span
-                                  className={`${s.metaPill} ${isConfigured ? s.metaPillSuccess : s.metaPillWarn}`}
-                                >
-                                  {isConfigured ? (
-                                    <>
-                                      <CheckCircle2 size={11} /> 已配置
-                                    </>
-                                  ) : (
-                                    <>
-                                      <AlertCircle size={11} /> 未配置
-                                    </>
-                                  )}
-                                </span>
-                                <input
-                                  type="password"
-                                  className={s.input}
-                                  value={secretInputs[spec.name] ?? ""}
-                                  onChange={(e) =>
-                                    setSecretInputs((prev) => ({
-                                      ...prev,
-                                      [spec.name]: e.target.value,
-                                    }))
-                                  }
-                                  placeholder={
-                                    isConfigured
-                                      ? "输入新值以覆盖本机密钥…"
-                                      : "输入本机 API Key / Token…"
-                                  }
-                                />
-                              </>
-                            ) : (
-                              <span className={s.appPath}>
-                                默认值: {spec.defaultValue || "(空)"}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Global Per-App Switches */}
-                  <div className={s.sectionCard}>
-                    <div className={s.sectionTitle}>
-                      全局多客户端无损启用（保留各端原有配置与注释）
-                    </div>
-                    <div className={s.appGrid}>
-                      {visibleMcpApps.map((app) => {
-                        const enabled = (
-                          globalEnabledByServer[selectedServer.id] ?? []
-                        ).includes(app.id);
-                        return (
-                          <div key={app.id} className={s.appRow}>
-                            <div className={s.appInfo}>
-                              <span className={s.appName}>
-                                <span
-                                  className={s.appDot}
-                                  style={{ background: app.accentColor }}
-                                />
-                                {app.label}
-                              </span>
-                              <span className={s.appPath}>
-                                {app.mcpGlobalPathLabel ?? "全局配置"}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={enabled}
-                              className={`${s.switchBtn} ${enabled ? s.switchBtnOn : ""}`}
-                              onClick={() =>
-                                void toggleServerGlobalApp(
-                                  selectedServer.id,
-                                  app.id
-                                )
-                              }
-                            >
-                              <span
-                                className={`${s.switchThumb} ${enabled ? s.switchThumbOn : ""}`}
-                              />
-                            </button>
-                          </div>
-                        );
-                      })}
-
-                      {t3Meta && (
-                        <div
-                          className={s.appRow}
-                          title={t3Meta.mcpUnsupportedNote ?? ""}
-                        >
-                          <div className={s.appInfo}>
-                            <span className={s.appName}>
-                              <span
-                                className={s.appDot}
-                                style={{ background: t3Meta.accentColor }}
-                              />
-                              {t3Meta.label}
-                            </span>
-                            <span className={s.appPath}>
-                              随底层 Claude / Codex 会话生效
-                            </span>
-                          </div>
-                          <span className={s.metaPill}>宿主委托</span>
+                <Drawer
+                  label={selectedServer.name}
+                  onClose={() => setSelectedId(null)}
+                >
+                  <section className={s.detailPane}>
+                    <div className={s.detailHeader}>
+                      <div>
+                        <div className={s.detailTitle}>
+                          {selectedServer.name}
                         </div>
-                      )}
-                    </div>
-                  </div>
+                        <div className={s.detailSlug}>
+                          标识: {selectedServer.slug} · 协议:{" "}
+                          {selectedServer.transport.toUpperCase()}
+                        </div>
+                      </div>
 
-                  {/* Project-Level Scope */}
-                  <div className={s.sectionCard}>
-                    <div className={s.sectionTitleRow}>
-                      <span className={s.sectionTitle}>项目级环境定向装配</span>
                       <div className={s.btnRow}>
-                        <select
-                          className={s.select}
-                          value={claudeMode}
-                          onChange={(e) =>
-                            setClaudeMode(
-                              e.target.value as ClaudeProjectMcpMode
-                            )
-                          }
-                          title="选择 Claude Code 项目级作用域"
-                        >
-                          <option value="local">
-                            Claude: local 本机私有 (~/.claude.json)
-                          </option>
-                          <option value="project">
-                            Claude: project 团队共享 (.mcp.json 仅占位符)
-                          </option>
-                        </select>
+                        <FolderPicker kind="mcp" itemId={selectedServer.id} />
                         <button
                           type="button"
                           className={s.btn}
-                          onClick={() => void handlePickProjectFolder()}
+                          onClick={() => openEditModal(selectedServer)}
                         >
-                          <FolderPlus size={13} /> 选择项目目录
+                          <Edit3 size={13} /> 编辑规格
+                        </button>
+                        <button
+                          type="button"
+                          className={`${s.btn} ${s.btnDanger}`}
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: `删除 MCP「${selectedServer.name}」？`,
+                              message:
+                                "会从已启用的全局客户端中移除，并同步到备份仓库。",
+                              confirmLabel: "删除",
+                              danger: true,
+                            });
+                            if (ok) {
+                              setSelectedId(null);
+                              void remove(selectedServer.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={13} /> 删除
                         </button>
                       </div>
                     </div>
 
-                    <div className={s.btnRow}>
-                      {projects.filter((p) => p.path).length > 0 && (
-                        <select
-                          className={s.select}
+                    {/* Connection Spec */}
+                    <div className={s.sectionCard}>
+                      <div className={s.sectionTitle}>运行入口与参数</div>
+                      <div className={s.codeBox}>
+                        {selectedServer.transport === "stdio"
+                          ? `${selectedServer.command ?? ""} ${selectedServer.args.join(" ")}`
+                          : (selectedServer.url ?? "")}
+                      </div>
+                    </div>
+
+                    {/* Secret Isolation Vault */}
+                    {selectedServer.envSpecs.length > 0 && (
+                      <div className={s.sectionCard}>
+                        <div className={s.sectionTitleRow}>
+                          <span className={s.sectionTitle}>
+                            <ShieldCheck size={15} /> 环境变量与本机私密凭据
+                          </span>
+                          {Object.keys(secretInputs).length > 0 && (
+                            <button
+                              type="button"
+                              className={s.btnPrimary}
+                              onClick={() =>
+                                void handleSaveInlineSecrets(selectedServer)
+                              }
+                            >
+                              保存本机密钥
+                            </button>
+                          )}
+                        </div>
+
+                        <div className={s.securityNotice}>
+                          <Lock size={13} />
+                          <span>
+                            标记为敏感的变量值仅保存在本机{" "}
+                            <code>local-secrets.json</code>（权限
+                            0600），绝不写入 Git
+                            备份仓；写入共享项目配置时自动转为{" "}
+                            <code>{"${ENV_VAR}"}</code> 占位符。
+                          </span>
+                        </div>
+
+                        {selectedServer.envSpecs.map((spec) => {
+                          const isConfigured =
+                            selectedServer.configuredSecretKeys.includes(
+                              spec.name
+                            );
+                          return (
+                            <div key={spec.name} className={s.secretRow}>
+                              <span className={s.secretKey}>{spec.name}</span>
+                              {spec.isSecret ? (
+                                <>
+                                  <span
+                                    className={`${s.metaPill} ${isConfigured ? s.metaPillSuccess : s.metaPillWarn}`}
+                                  >
+                                    {isConfigured ? (
+                                      <>
+                                        <CheckCircle2 size={11} /> 已配置
+                                      </>
+                                    ) : (
+                                      <>
+                                        <AlertCircle size={11} /> 未配置
+                                      </>
+                                    )}
+                                  </span>
+                                  <input
+                                    type="password"
+                                    className={s.input}
+                                    value={secretInputs[spec.name] ?? ""}
+                                    onChange={(e) =>
+                                      setSecretInputs((prev) => ({
+                                        ...prev,
+                                        [spec.name]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder={
+                                      isConfigured
+                                        ? "输入新值以覆盖本机密钥…"
+                                        : "输入本机 API Key / Token…"
+                                    }
+                                  />
+                                </>
+                              ) : (
+                                <span className={s.appPath}>
+                                  默认值: {spec.defaultValue || "(空)"}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Global Per-App Switches */}
+                    <div className={s.sectionCard}>
+                      <div className={s.sectionTitle}>
+                        全局多客户端无损启用（保留各端原有配置与注释）
+                      </div>
+                      <div className={s.appGrid}>
+                        {visibleMcpApps.map((app) => {
+                          const enabled = (
+                            globalEnabledByServer[selectedServer.id] ?? []
+                          ).includes(app.id);
+                          return (
+                            <div key={app.id} className={s.appRow}>
+                              <div className={s.appInfo}>
+                                <span className={s.appName}>
+                                  <span
+                                    className={s.appDot}
+                                    style={{ background: app.accentColor }}
+                                  />
+                                  {app.label}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={enabled}
+                                className={`${s.switchBtn} ${enabled ? s.switchBtnOn : ""}`}
+                                onClick={() =>
+                                  void toggleServerGlobalApp(
+                                    selectedServer.id,
+                                    app.id
+                                  )
+                                }
+                              >
+                                <span
+                                  className={`${s.switchThumb} ${enabled ? s.switchThumbOn : ""}`}
+                                />
+                              </button>
+                            </div>
+                          );
+                        })}
+
+                        {t3Meta && (
+                          <div
+                            className={s.appRow}
+                            title={t3Meta.mcpUnsupportedNote ?? ""}
+                          >
+                            <div className={s.appInfo}>
+                              <span className={s.appName}>
+                                <span
+                                  className={s.appDot}
+                                  style={{ background: t3Meta.accentColor }}
+                                />
+                                {t3Meta.label}
+                              </span>
+                              <span className={s.appPath}>
+                                随底层 Claude / Codex 会话生效
+                              </span>
+                            </div>
+                            <span className={s.metaPill}>宿主委托</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Project-Level Scope */}
+                    <div className={s.sectionCard}>
+                      <div className={s.sectionTitleRow}>
+                        <span className={s.sectionTitle}>
+                          项目级环境定向装配
+                        </span>
+                        <div className={s.btnRow}>
+                          <select
+                            className={s.select}
+                            value={claudeMode}
+                            onChange={(e) =>
+                              setClaudeMode(
+                                e.target.value as ClaudeProjectMcpMode
+                              )
+                            }
+                            title="选择 Claude Code 项目级作用域"
+                          >
+                            <option value="local">
+                              Claude: local 本机私有 (~/.claude.json)
+                            </option>
+                            <option value="project">
+                              Claude: project 团队共享 (.mcp.json 仅占位符)
+                            </option>
+                          </select>
+                          <button
+                            type="button"
+                            className={s.btn}
+                            onClick={() => void handlePickProjectFolder()}
+                          >
+                            <FolderPlus size={13} /> 选择项目目录
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className={s.btnRow}>
+                        {projects.filter((p) => p.path).length > 0 && (
+                          <select
+                            className={s.select}
+                            value={selectedProjectPath}
+                            onChange={(e) =>
+                              setSelectedProjectPath(e.target.value)
+                            }
+                          >
+                            <option value="">-- 选择已保存项目 --</option>
+                            {projects
+                              .filter((p) => p.path)
+                              .map((proj) => (
+                                <option key={proj.id} value={proj.path ?? ""}>
+                                  {proj.name} ({proj.path})
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                        <input
+                          className={s.input}
                           value={selectedProjectPath}
                           onChange={(e) =>
                             setSelectedProjectPath(e.target.value)
                           }
-                        >
-                          <option value="">-- 选择已保存项目 --</option>
-                          {projects
-                            .filter((p) => p.path)
-                            .map((proj) => (
-                              <option key={proj.id} value={proj.path ?? ""}>
-                                {proj.name} ({proj.path})
-                              </option>
-                            ))}
-                        </select>
-                      )}
-                      <input
-                        className={s.input}
-                        value={selectedProjectPath}
-                        onChange={(e) => setSelectedProjectPath(e.target.value)}
-                        placeholder="输入或选择项目本地根目录路径…"
-                      />
-                    </div>
-
-                    {selectedProjectPath.trim() && (
-                      <div className={s.appGrid}>
-                        {projectStatuses
-                          .filter((st) => st.supported)
-                          .map((st) => {
-                            const meta = getAppMeta(st.appId);
-                            if (!meta) return null;
-                            return (
-                              <div key={st.appId} className={s.appRow}>
-                                <div className={s.appInfo}>
-                                  <span className={s.appName}>
-                                    <span
-                                      className={s.appDot}
-                                      style={{ background: meta.accentColor }}
-                                    />
-                                    {meta.label}
-                                  </span>
-                                  <span className={s.appPath}>
-                                    {st.scopeDetail ?? meta.mcpProjectPathLabel}
-                                  </span>
-                                </div>
-                                <button
-                                  type="button"
-                                  role="switch"
-                                  aria-checked={st.installed}
-                                  className={`${s.switchBtn} ${st.installed ? s.switchBtnOn : ""}`}
-                                  onClick={() =>
-                                    void handleToggleProjectApp(
-                                      selectedServer,
-                                      st.appId,
-                                      st.installed
-                                    )
-                                  }
-                                >
-                                  <span
-                                    className={`${s.switchThumb} ${st.installed ? s.switchThumbOn : ""}`}
-                                  />
-                                </button>
-                              </div>
-                            );
-                          })}
+                          placeholder="输入或选择项目本地根目录路径…"
+                        />
                       </div>
-                    )}
-                  </div>
-                </section>
+
+                      {selectedProjectPath.trim() && (
+                        <div className={s.appGrid}>
+                          {projectStatuses
+                            .filter((st) => st.supported)
+                            .map((st) => {
+                              const meta = getAppMeta(st.appId);
+                              if (!meta) return null;
+                              return (
+                                <div key={st.appId} className={s.appRow}>
+                                  <div className={s.appInfo}>
+                                    <span className={s.appName}>
+                                      <span
+                                        className={s.appDot}
+                                        style={{ background: meta.accentColor }}
+                                      />
+                                      {meta.label}
+                                    </span>
+                                    <span className={s.appPath}>
+                                      {st.scopeDetail ??
+                                        meta.mcpProjectPathLabel}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={st.installed}
+                                    className={`${s.switchBtn} ${st.installed ? s.switchBtnOn : ""}`}
+                                    onClick={() =>
+                                      void handleToggleProjectApp(
+                                        selectedServer,
+                                        st.appId,
+                                        st.installed
+                                      )
+                                    }
+                                  >
+                                    <span
+                                      className={`${s.switchThumb} ${st.installed ? s.switchThumbOn : ""}`}
+                                    />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                </Drawer>
               )}
             </div>
           )}

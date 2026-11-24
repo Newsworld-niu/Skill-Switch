@@ -13,6 +13,7 @@ import { SlashCommandProvider } from "./context/SlashCommandContext";
 import { McpProvider } from "./context/McpContext";
 import { PluginProvider } from "./context/PluginContext";
 import { ProjectProvider } from "./context/ProjectContext";
+import { FolderProvider, useFolders } from "./context/FolderContext";
 import { SettingsProvider, useSettings } from "./context/SettingsContext";
 import { useSkills } from "./context/SkillContext";
 import { useSlashCommands } from "./context/SlashCommandContext";
@@ -70,6 +71,7 @@ function LibraryChangeListener() {
   const { refresh: refreshMcp } = useMcp();
   const { refresh: refreshPlugins } = usePlugins();
   const { refresh: refreshProjects } = useProjects();
+  const { refresh: refreshFolders } = useFolders();
 
   useEffect(() => {
     let disposed = false;
@@ -80,6 +82,7 @@ function LibraryChangeListener() {
       void refreshMcp();
       void refreshPlugins();
       void refreshProjects();
+      void refreshFolders();
     }).then((fn) => {
       if (disposed) fn();
       else unlisten = fn;
@@ -93,6 +96,7 @@ function LibraryChangeListener() {
     refreshCommands,
     refreshMcp,
     refreshPlugins,
+    refreshFolders,
     refreshProjects,
   ]);
 
@@ -193,31 +197,33 @@ export default function App() {
                       <PluginProvider>
                         <ProjectProvider>
                           <UpdaterProvider>
-                            <AppShell
-                              activePage={activePage}
-                              activeRepoId={activeRepoId}
-                              activeLibraryTab={activeLibraryTab}
-                              activeCommandMode={activeCommandMode}
-                              activeMcpMode={activeMcpMode}
-                              externalAppFilter={externalAppFilter}
-                              onNavigate={setActivePage}
-                              onNavigateRepo={navigateToRepo}
-                              onNavigateLibraryTab={navigateToLibraryTab}
-                              onNavigateExternalApp={navigateToExternalApp}
-                              onNavigateMcpMode={navigateToMcpMode}
-                              onToggleCommandMode={() =>
-                                setActiveCommandMode((prev) =>
-                                  prev === "self-created"
-                                    ? "external"
-                                    : "self-created"
-                                )
-                              }
-                            >
-                              {renderPage()}
-                            </AppShell>
-                            <LibraryChangeListener />
-                            <ToastContainer />
-                            <UpdateNotification />
+                            <FolderProvider>
+                              <AppShell
+                                activePage={activePage}
+                                activeRepoId={activeRepoId}
+                                activeLibraryTab={activeLibraryTab}
+                                activeCommandMode={activeCommandMode}
+                                activeMcpMode={activeMcpMode}
+                                externalAppFilter={externalAppFilter}
+                                onNavigate={setActivePage}
+                                onNavigateRepo={navigateToRepo}
+                                onNavigateLibraryTab={navigateToLibraryTab}
+                                onNavigateExternalApp={navigateToExternalApp}
+                                onNavigateMcpMode={navigateToMcpMode}
+                                onToggleCommandMode={() =>
+                                  setActiveCommandMode((prev) =>
+                                    prev === "self-created"
+                                      ? "external"
+                                      : "self-created"
+                                  )
+                                }
+                              >
+                                {renderPage()}
+                              </AppShell>
+                              <LibraryChangeListener />
+                              <ToastContainer />
+                              <UpdateNotification />
+                            </FolderProvider>
                           </UpdaterProvider>
                         </ProjectProvider>
                       </PluginProvider>

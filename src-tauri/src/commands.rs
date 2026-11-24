@@ -940,6 +940,22 @@ pub async fn skill_import_from_repo_source(
 // ─── MCP Server commands ──────────────────────────────────────────────────────
 
 #[tauri::command]
+pub fn library_folders_list(
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::domain::LibraryFolder>, String> {
+    store::list_library_folders(&app)
+}
+
+#[tauri::command]
+pub async fn library_folders_set(
+    app: tauri::AppHandle,
+    kind: crate::domain::LibraryFolderKind,
+    folders: Vec<crate::domain::LibraryFolder>,
+) -> Result<Vec<crate::domain::LibraryFolder>, String> {
+    run_locked_command(move || store::set_library_folders(&app, kind, folders)).await
+}
+
+#[tauri::command]
 pub fn mcp_list(app: tauri::AppHandle) -> Result<Vec<crate::domain::McpServerDto>, String> {
     crate::mcp::list_mcp_servers(&app)
 }

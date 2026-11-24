@@ -1,0 +1,78 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--overlay);
+  animation: fadeIn var(--duration-fast) var(--ease-out-quart);
+}
+
+.panel {
+  position: fixed;
+  top: var(--space-3);
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 51;
+  width: min(880px, calc(100vw - var(--sidebar-width) - var(--space-8)));
+  min-width: min(520px, calc(100vw - var(--space-6)));
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-xl);
+  background: var(--canvas);
+  border: 1px solid var(--divider);
+  box-shadow: var(--shadow-xl);
+  animation: drawerIn var(--duration-normal) var(--ease-out-expo);
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/* Let the page's own detail component fill the drawer. */
+.content > * {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+  border: none;
+}
+
+.close {
+  position: absolute;
+  top: var(--space-3);
+  left: calc(-1 * (32px + var(--space-3)));
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-strong);
+  border: 1px solid var(--divider);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.close:hover {
+  color: var(--ink);
+  transform: scale(1.05);
+}
+
+@keyframes drawerIn {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

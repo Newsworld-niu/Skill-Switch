@@ -75,14 +75,7 @@
 /* Repos */
 .backupSection {
   margin: 0 2px;
-  padding: 8px 8px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--primary) 6%, var(--bg-base)),
-    var(--bg-base)
-  );
+  padding: 4px 4px 6px;
 }
 .backupStateBadge {
   padding: 2px 7px;
@@ -110,8 +103,7 @@
   background: var(--bg-surface);
 }
 .backupItemActive {
-  background: color-mix(in srgb, var(--primary) 10%, var(--bg-base)) !important;
-  border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--border-subtle));
+  background: var(--accent-subtle) !important;
 }
 .backupIcon {
   color: var(--primary);
@@ -175,12 +167,7 @@
   background: var(--bg-surface);
 }
 .libraryItemActive {
-  background: color-mix(in srgb, var(--primary) 10%, var(--bg-base)) !important;
-  border-color: color-mix(
-    in srgb,
-    var(--primary) 25%,
-    var(--border-subtle)
-  ) !important;
+  background: var(--accent-subtle) !important;
 }
 .libraryItemActive .backupName,
 .libraryItemActive .backupMeta,
@@ -233,12 +220,8 @@
   border-color: var(--border-subtle);
 }
 .librarySubItemActive {
-  background: color-mix(in srgb, var(--primary) 8%, var(--bg-base)) !important;
-  border-color: color-mix(
-    in srgb,
-    var(--primary) 20%,
-    var(--border-subtle)
-  ) !important;
+  background: var(--accent-subtle) !important;
+  border-color: transparent !important;
   color: var(--primary) !important;
 }
 .librarySubItemIcon {

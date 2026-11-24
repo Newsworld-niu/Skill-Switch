@@ -1,13 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, watch } from "@tauri-apps/plugin-fs";
-import {
-  Search,
-  Plus,
-  AlertTriangle,
-  Loader,
-  ExternalLink,
-} from "lucide-react";
+import { Search, Plus, AlertTriangle, Loader } from "lucide-react";
 import { useSkills } from "../context/SkillContext";
 import { useApps } from "../context/AppContext";
 import { useToast } from "../components/ui/Toast";
@@ -28,6 +22,8 @@ import {
   ExternalImportPreviewModal,
 } from "./library/ExternalSkillPanels";
 import { DetailPanel } from "./library/SkillDetailPanel";
+import { Drawer } from "../components/ui/Drawer";
+import { FolderedGrid } from "../components/ui/FolderedGrid";
 
 const SKILL_MD_PATH_RE = /(?:^|[\\/])SKILL\.md$/i;
 
@@ -36,8 +32,8 @@ type LibraryGroupTab = "self-created" | "external";
 // ── Loading Skeleton ────────────────────────────────────────────────────────
 function LoadingSkeleton() {
   return (
-    <div className={s.list}>
-      {[1, 2, 3, 4].map((i) => (
+    <div className={s.grid}>
+      {[1, 2, 3, 4, 5, 6].map((i) => (
         <div key={i} className={s.card}>
           <div className={s.cardContent}>
             <div className={s.skeletonIcon} />
@@ -67,7 +63,6 @@ export function MyLibraryPage({
     skills,
     externalSkills,
     globalEnabledBySkill,
-    toggleSkillGlobalApp,
     autoEnableDefaultApps,
     loading,
     error,
@@ -137,12 +132,12 @@ export function MyLibraryPage({
       const success = await remove(selectedSkill.id);
       if (success) {
         toast.resolve(tid, "success", `「${selectedSkill.name}」已卸载`);
-        setSelectedId(skills[0]?.id ?? null);
+        setSelectedId(null);
       } else {
         toast.resolve(tid, "error", "卸载失败");
       }
     }
-  }, [selectedSkill, remove, skills, toast, confirm]);
+  }, [selectedSkill, remove, toast, confirm]);
 
   // Export handler
   const handleExport = useCallback(async () => {
@@ -300,50 +295,26 @@ export function MyLibraryPage({
       })
     : appFilteredExternal;
 
+  // Details open only on click: close the drawer when its item disappears.
   useEffect(() => {
-    const activeManagedSkills =
-      activeLibraryTab === "self-created" ? skills : [];
-
-    if (activeLibraryTab === "external") return;
-
-    if (activeManagedSkills.length === 0) {
-      if (selectedId !== null) {
-        setSelectedId(null);
-      }
-      return;
+    if (
+      selectedId !== null &&
+      !skills.some((skill) => skill.id === selectedId)
+    ) {
+      setSelectedId(null);
     }
-
-    const selectedStillVisible = activeManagedSkills.some(
-      (skill) => skill.id === selectedId
-    );
-    if (!selectedStillVisible) {
-      setSelectedId(activeManagedSkills[0].id);
-    }
-  }, [activeLibraryTab, selectedId, skills]);
+  }, [selectedId, skills]);
 
   useEffect(() => {
-    if (activeLibraryTab !== "external" || !externalAppFilter) {
-      if (selectedExternalKey !== null) {
-        setSelectedExternalKey(null);
-      }
-      return;
-    }
-
-    if (filteredExternal.length === 0) {
-      if (selectedExternalKey !== null) {
-        setSelectedExternalKey(null);
-      }
-      return;
-    }
-
-    const selectedStillVisible = filteredExternal.some(
-      (skill) => `${skill.appId}:${skill.slug}` === selectedExternalKey
-    );
-
-    if (!selectedStillVisible) {
-      setSelectedExternalKey(
-        `${filteredExternal[0].appId}:${filteredExternal[0].slug}`
-      );
+    if (
+      selectedExternalKey !== null &&
+      (activeLibraryTab !== "external" ||
+        !externalAppFilter ||
+        !filteredExternal.some(
+          (skill) => `${skill.appId}:${skill.slug}` === selectedExternalKey
+        ))
+    ) {
+      setSelectedExternalKey(null);
     }
   }, [
     activeLibraryTab,
@@ -424,8 +395,11 @@ export function MyLibraryPage({
     [selectedId]
   );
 
-  const keyboardNavIds =
-    activeLibraryTab === "self-created"
+  // ↑/↓ browses neighbouring items only while the detail drawer is open.
+  const drawerOpen = !!selectedSkill || !!selectedExternal;
+  const keyboardNavIds = !drawerOpen
+    ? []
+    : activeLibraryTab === "self-created"
       ? filteredSelfCreated.map((skill) => skill.id)
       : externalAppFilter
         ? filteredExternal.map((skill) => `${skill.appId}:${skill.slug}`)
@@ -440,27 +414,31 @@ export function MyLibraryPage({
 
   const renderActiveTabContent = () => {
     if (activeLibraryTab === "self-created") {
-      if (filteredSelfCreated.length === 0) {
-        return (
-          <div className={s.empty}>
-            {searchQuery
-              ? "自建 Skills 中未找到匹配项"
-              : "还没有自建 Skill，点击「创建」试试"}
-          </div>
-        );
-      }
-
-      return filteredSelfCreated.map((skill) => (
-        <SkillCard
-          key={skill.id}
-          skill={skill}
-          selected={selectedId === skill.id}
-          enabledAppIds={globalEnabledBySkill[skill.id] ?? []}
-          visibleApps={visibleSkillApps}
-          onToggleApp={(appId) => void toggleSkillGlobalApp(skill.id, appId)}
-          onClick={() => handleSelectManagedSkill(skill.id)}
+      return (
+        <FolderedGrid
+          kind="skill"
+          items={filteredSelfCreated}
+          getId={(skill) => skill.id}
+          searching={!!searchQuery.trim()}
+          empty={
+            <div className={s.empty}>
+              {searchQuery
+                ? "自建 Skills 中未找到匹配项"
+                : "还没有自建 Skill，点击「创建」试试"}
+            </div>
+          }
+          renderItem={(skill) => (
+            <SkillCard
+              key={skill.id}
+              skill={skill}
+              selected={selectedId === skill.id}
+              enabledAppIds={globalEnabledBySkill[skill.id] ?? []}
+              visibleApps={visibleSkillApps}
+              onClick={() => handleSelectManagedSkill(skill.id)}
+            />
+          )}
         />
-      ));
+      );
     }
 
     if (!externalAppFilter) {
@@ -481,18 +459,22 @@ export function MyLibraryPage({
       );
     }
 
-    return filteredExternal.map((skill) => {
-      const key = `${skill.appId}:${skill.slug}`;
-      return (
-        <ExternalSkillCard
-          key={key}
-          skill={skill}
-          selected={selectedExternalKey === key}
-          onClick={() => setSelectedExternalKey(key)}
-          onImport={() => void handlePreviewExternalImport(skill)}
-        />
-      );
-    });
+    return (
+      <div className={s.grid}>
+        {filteredExternal.map((skill) => {
+          const key = `${skill.appId}:${skill.slug}`;
+          return (
+            <ExternalSkillCard
+              key={key}
+              skill={skill}
+              selected={selectedExternalKey === key}
+              onClick={() => setSelectedExternalKey(key)}
+              onImport={() => void handlePreviewExternalImport(skill)}
+            />
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -551,19 +533,15 @@ export function MyLibraryPage({
         </div>
       )}
 
-      {/* ── Body: list + detail ── */}
+      {/* ── Body: full-width grid; details open in a drawer on click ── */}
       <div className={s.body}>
-        {/* Left: card list */}
-        {loading ? (
-          <LoadingSkeleton />
-        ) : (
-          <div className={s.list}>
-            <div className={s.groupTabPanel}>{renderActiveTabContent()}</div>
-          </div>
-        )}
+        <div className={s.list}>
+          {loading ? <LoadingSkeleton /> : renderActiveTabContent()}
+        </div>
+      </div>
 
-        {/* Right: detail panel */}
-        {selectedSkill && (
+      {selectedSkill && (
+        <Drawer label={selectedSkill.name} onClose={() => setSelectedId(null)}>
           <DetailPanel
             key={selectedSkill.id}
             skill={selectedSkill}
@@ -571,33 +549,20 @@ export function MyLibraryPage({
             onExport={handleExport}
             onSyncFromSource={syncFromSource}
           />
-        )}
-        {!selectedSkill &&
-          activeLibraryTab === "external" &&
-          selectedExternal && (
-            <ExternalDetailPanel
-              key={`${selectedExternal.appId}:${selectedExternal.slug}`}
-              skill={selectedExternal}
-              onImport={() =>
-                void handlePreviewExternalImport(selectedExternal)
-              }
-            />
-          )}
-        {!selectedSkill &&
-          activeLibraryTab === "external" &&
-          !selectedExternal && (
-            <div className={s.detailPlaceholder}>
-              <div className={s.detailPlaceholderIcon}>
-                <ExternalLink size={18} />
-              </div>
-              <div className={s.detailPlaceholderTitle}>外部 Skills</div>
-              <div className={s.detailPlaceholderHint}>
-                从左侧二级列表选择一个来源，再查看并导入该目录下发现的外部
-                Skill。
-              </div>
-            </div>
-          )}
-      </div>
+        </Drawer>
+      )}
+      {!selectedSkill && selectedExternal && (
+        <Drawer
+          label={selectedExternal.name}
+          onClose={() => setSelectedExternalKey(null)}
+        >
+          <ExternalDetailPanel
+            key={`${selectedExternal.appId}:${selectedExternal.slug}`}
+            skill={selectedExternal}
+            onImport={() => void handlePreviewExternalImport(selectedExternal)}
+          />
+        </Drawer>
+      )}
       {externalImportPreview && (
         <ExternalImportPreviewModal
           preview={externalImportPreview}

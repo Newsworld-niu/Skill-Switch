@@ -166,6 +166,17 @@ export interface SlashCommand {
   provenance?: Provenance;
 }
 
+/** Which list a user-defined folder belongs to. */
+export type LibraryFolderKind = "skill" | "slash-command" | "mcp" | "plugin";
+
+/** User-defined display folder (organisation only; never changes install paths). */
+export interface LibraryFolder {
+  id: string;
+  name: string;
+  kind: LibraryFolderKind;
+  itemIds: string[];
+}
+
 /// A skill found in an external app directory (not managed by SkillSwitch)
 export interface ExternalSkill {
   slug: string;
