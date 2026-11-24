@@ -464,16 +464,128 @@
   margin: 0;
 }
 
-/* 底部来源信息 */
+/* 底部来源信息与单端快捷开关 */
 .cardFooter {
   margin-top: auto;
-  padding-top: 2px;
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .cardSlug {
   font-size: 0.68rem;
   color: var(--text-muted);
   opacity: 0.7;
+}
+
+.cardAppPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.cardAppPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 600;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  opacity: 0.72;
+}
+
+.cardAppPill:hover {
+  opacity: 1;
+  border-color: var(--pill-accent, var(--primary));
+  color: var(--text-primary);
+}
+
+.cardAppPillActive {
+  opacity: 1;
+  border-color: color-mix(
+    in srgb,
+    var(--pill-accent, var(--primary)) 48%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--pill-accent, var(--primary)) 12%,
+    var(--bg-base)
+  );
+  color: var(--pill-accent, var(--primary));
+  font-weight: 700;
+}
+
+.cardAppPillIcon {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.cardAppPillDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pill-accent, var(--primary));
+  flex-shrink: 0;
+}
+
+.appMiniIcon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.appMiniMonogram {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.52rem;
+  font-weight: 800;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.sharedPathBadge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+
+.projectAppMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.projectAppSub {
+  font-size: 0.62rem;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
 }
 
 .empty {

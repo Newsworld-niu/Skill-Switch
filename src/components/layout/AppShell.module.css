@@ -48,10 +48,13 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 .logoIcon {
-  width: 30px; height: 30px;
+  width: 30px;
+  height: 30px;
   background: var(--primary);
   border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 14px;
 }
 .logoName {
@@ -70,7 +73,17 @@
 }
 
 /* Repos */
-.backupSection { margin: 0 2px; padding: 8px 8px 10px; border: 1px solid var(--border-subtle); border-radius: 14px; background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 6%, var(--bg-base)), var(--bg-base)); }
+.backupSection {
+  margin: 0 2px;
+  padding: 8px 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 6%, var(--bg-base)),
+    var(--bg-base)
+  );
+}
 .backupStateBadge {
   padding: 2px 7px;
   border-radius: 999px;
@@ -89,9 +102,13 @@
   cursor: pointer;
   text-align: left;
   background: transparent;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
 }
-.backupItem:hover { background: var(--bg-surface); }
+.backupItem:hover {
+  background: var(--bg-surface);
+}
 .backupItemActive {
   background: color-mix(in srgb, var(--primary) 10%, var(--bg-base)) !important;
   border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--border-subtle));
@@ -146,14 +163,24 @@
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
   margin-bottom: 2px;
 }
-.libraryItem:last-child { margin-bottom: 0; }
-.libraryItem:hover { background: var(--bg-surface); }
+.libraryItem:last-child {
+  margin-bottom: 0;
+}
+.libraryItem:hover {
+  background: var(--bg-surface);
+}
 .libraryItemActive {
   background: color-mix(in srgb, var(--primary) 10%, var(--bg-base)) !important;
-  border-color: color-mix(in srgb, var(--primary) 25%, var(--border-subtle)) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--primary) 25%,
+    var(--border-subtle)
+  ) !important;
 }
 .libraryItemActive .backupName,
 .libraryItemActive .backupMeta,
@@ -196,7 +223,10 @@
   font-size: 0.76rem;
   font-weight: 600;
   color: var(--text-secondary);
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s,
+    color 0.1s;
 }
 .librarySubItem:hover {
   background: var(--bg-surface);
@@ -204,7 +234,11 @@
 }
 .librarySubItemActive {
   background: color-mix(in srgb, var(--primary) 8%, var(--bg-base)) !important;
-  border-color: color-mix(in srgb, var(--primary) 20%, var(--border-subtle)) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--primary) 20%,
+    var(--border-subtle)
+  ) !important;
   color: var(--primary) !important;
 }
 .librarySubItemIcon {
@@ -212,6 +246,18 @@
   height: 16px;
   border-radius: 4px;
   object-fit: cover;
+  flex-shrink: 0;
+}
+.librarySubItemMonogram {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.52rem;
+  font-weight: 800;
+  color: #ffffff;
   flex-shrink: 0;
 }
 .librarySubItemLabel {
@@ -230,11 +276,18 @@
   color: var(--primary);
 }
 
-.reposSection { padding-top: 8px; }
+.reposSection {
+  padding-top: 8px;
+}
 .reposHeader {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
   padding: 0 2px 8px;
 }
 .reposHeaderActions {
@@ -243,20 +296,31 @@
   gap: 4px;
 }
 .reposHeaderBtn {
-  width: 24px; height: 24px;
-  color: var(--text-muted); font-size: 0.8rem;
-  display: flex; align-items: center; justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 7px;
   border: 1px solid transparent;
   background: transparent;
-  transition: color 0.12s, background 0.12s, border-color 0.12s, opacity 0.12s;
+  transition:
+    color 0.12s,
+    background 0.12s,
+    border-color 0.12s,
+    opacity 0.12s;
 }
 .reposHeaderBtn:hover:not(:disabled) {
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--bg-surface) 82%, var(--bg-base));
   border-color: var(--border-subtle);
 }
-.reposHeaderBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.reposHeaderBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 .repoCard {
   display: flex;
@@ -268,7 +332,10 @@
   padding: 8px;
   border-radius: 12px;
   border: 1px solid transparent;
-  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.12s ease;
 }
 .repoCard:last-child {
   margin-bottom: 0;
@@ -306,18 +373,31 @@
   background: var(--bg-base);
 }
 .settingsBtn {
-  display: flex; align-items: center; justify-content: center; gap: 6px;
-  width: 100%; padding: 7px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   color: var(--text-secondary);
-  font-size: 0.78rem; font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.12s;
 }
-.settingsBtn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-muted); }
-.settingsBtnActive { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-muted) !important; }
+.settingsBtn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-muted);
+}
+.settingsBtnActive {
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  background: var(--primary-muted) !important;
+}
 
 .repoIcon {
   color: var(--text-muted);
@@ -363,7 +443,11 @@
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
-  transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s,
+    opacity 0.12s;
 }
 .repoActionBtn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 8%, var(--bg-base));
@@ -379,71 +463,169 @@
   border-color: rgba(220, 38, 38, 0.16);
   color: var(--error);
 }
-.repoSpinner { color: var(--primary); animation: spinIt 1s linear infinite; }
-.reposEmpty { font-size: 0.7rem; color: var(--text-muted); padding: 6px 4px 0; }
-@keyframes spinIt { to { transform: rotate(360deg); } }
+.repoSpinner {
+  color: var(--primary);
+  animation: spinIt 1s linear infinite;
+}
+.reposEmpty {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 6px 4px 0;
+}
+@keyframes spinIt {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ── Add Repo Modal ── */
 .modalOverlay {
-  position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.35);
-  display: flex; align-items: center; justify-content: center;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   animation: fadeIn 0.15s ease-out;
 }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 
 .modal {
-  width: 420px; background: var(--bg-base);
+  width: 420px;
+  background: var(--bg-base);
   border: 1px solid var(--border-default);
   border-radius: 14px;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.2);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.2);
   animation: slideUp 0.15s ease-out;
 }
-@keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 .modalHeader {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 16px 20px 0;
 }
-.modalTitle { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
+.modalTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
 .modalClose {
-  display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border-radius: var(--radius-sm);
-  color: var(--text-muted); cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
   transition: all 0.1s;
 }
-.modalClose:hover { background: var(--bg-muted); color: var(--text-primary); }
+.modalClose:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
 
-.modalBody { padding: 16px 20px; }
-.modalLabel { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+.modalBody {
+  padding: 16px 20px;
+}
+.modalLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
 .modalInput {
-  width: 100%; padding: 8px 12px; border-radius: var(--radius-md);
-  background: var(--bg-surface); border: 1px solid var(--border-default);
-  font-size: 0.83rem; color: var(--text-primary); font-family: var(--font-mono);
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  font-size: 0.83rem;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
   box-sizing: border-box;
 }
-.modalInput:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px var(--primary-muted); }
-.modalInputError { border-color: var(--error) !important; }
-.modalError { font-size: 0.72rem; color: var(--error); margin-top: 6px; }
-.modalHint { font-size: 0.7rem; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
+.modalInput:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-muted);
+}
+.modalInputError {
+  border-color: var(--error) !important;
+}
+.modalError {
+  font-size: 0.72rem;
+  color: var(--error);
+  margin-top: 6px;
+}
+.modalHint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+  line-height: 1.5;
+}
 
 .modalFooter {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   padding: 0 20px 16px;
 }
 .modalCancelBtn {
-  padding: 7px 16px; border-radius: var(--radius-md);
-  background: var(--bg-surface); border: 1px solid var(--border-default);
-  font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); cursor: pointer;
+  padding: 7px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
   transition: all 0.1s;
 }
-.modalCancelBtn:hover { border-color: var(--border-default); background: var(--bg-muted); }
-.modalAddBtn {
-  padding: 7px 20px; border-radius: var(--radius-md);
-  background: var(--primary); color: white;
-  font-size: 0.82rem; font-weight: 700; cursor: pointer;
-  transition: background 0.12s; display: flex; align-items: center; gap: 6px;
+.modalCancelBtn:hover {
+  border-color: var(--border-default);
+  background: var(--bg-muted);
 }
-.modalAddBtn:hover { background: var(--primary-hover); }
-.modalAddBtn:disabled { opacity: 0.6; cursor: not-allowed; }
-.btnSpin { animation: spinIt 1s linear infinite; }
+.modalAddBtn {
+  padding: 7px 20px;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.modalAddBtn:hover {
+  background: var(--primary-hover);
+}
+.modalAddBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btnSpin {
+  animation: spinIt 1s linear infinite;
+}

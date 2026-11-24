@@ -624,43 +624,44 @@ pub fn slash_command_uninstall_from_project(
 
 #[tauri::command]
 pub fn project_remove_cli_folders(
+    app: tauri::AppHandle,
     input: RemoveProjectCliInput,
 ) -> Result<crate::domain::RemoveProjectCliResult, String> {
-    store::remove_project_cli_folders(&input)
+    store::remove_project_cli_folders(&app, &input)
 }
 
 // ─── Global skill install commands ─────────────────────────────────────────────
 
 #[tauri::command]
-pub fn skill_install_global(
+pub async fn skill_install_global(
     app: tauri::AppHandle,
     input: InstallSkillGlobalInput,
 ) -> Result<crate::domain::InstallSkillGlobalResult, String> {
-    store::install_skill_global(&app, &input)
+    run_blocking_command(move || store::install_skill_global(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn skill_uninstall_global(
+pub async fn skill_uninstall_global(
     app: tauri::AppHandle,
     input: InstallSkillGlobalInput,
 ) -> Result<crate::domain::InstallSkillGlobalResult, String> {
-    store::uninstall_skill_global(&app, &input)
+    run_blocking_command(move || store::uninstall_skill_global(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn slash_command_install_global(
+pub async fn slash_command_install_global(
     app: tauri::AppHandle,
     input: InstallSlashCommandGlobalInput,
 ) -> Result<crate::domain::InstallSlashCommandGlobalResult, String> {
-    store::install_slash_command_global(&app, &input)
+    run_blocking_command(move || store::install_slash_command_global(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn slash_command_uninstall_global(
+pub async fn slash_command_uninstall_global(
     app: tauri::AppHandle,
     input: InstallSlashCommandGlobalInput,
 ) -> Result<crate::domain::InstallSlashCommandGlobalResult, String> {
-    store::uninstall_slash_command_global(&app, &input)
+    run_blocking_command(move || store::uninstall_slash_command_global(&app, &input)).await
 }
 
 // ─── Symlink status commands ───────────────────────────────────────────────────
@@ -671,6 +672,21 @@ pub fn skill_check_symlink_status(
     input: crate::domain::CheckSymlinkStatusInput,
 ) -> Result<crate::domain::CheckSymlinkStatusResult, String> {
     store::check_symlink_status(&app, &input)
+}
+
+#[tauri::command]
+pub fn skill_list_global_enabled_apps(
+    app: tauri::AppHandle,
+) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
+    store::list_all_skills_global_enabled_apps(&app)
+}
+
+#[tauri::command]
+pub fn slash_command_check_symlink_status(
+    app: tauri::AppHandle,
+    input: crate::domain::CheckSlashCommandSymlinkInput,
+) -> Result<crate::domain::CheckSlashCommandSymlinkResult, String> {
+    store::check_slash_command_symlink_status(&app, &input)
 }
 
 #[tauri::command]
@@ -875,4 +891,256 @@ pub async fn skill_import_from_repo_source(
     input: crate::domain::ImportRepoSourceSkillInput,
 ) -> Result<crate::domain::SkillMutationResult, String> {
     run_blocking_command(move || store::import_skill_from_repo_source(&app, &input)).await
+}
+
+// ─── MCP Server commands ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn mcp_list(app: tauri::AppHandle) -> Result<Vec<crate::domain::McpServerDto>, String> {
+    crate::mcp::list_mcp_servers(&app)
+}
+
+#[tauri::command]
+pub fn mcp_get(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Option<crate::domain::McpServerDto>, String> {
+    crate::mcp::get_mcp_server(&app, &id)
+}
+
+#[tauri::command]
+pub async fn mcp_create(
+    app: tauri::AppHandle,
+    input: crate::domain::CreateMcpServerInput,
+) -> Result<crate::domain::CreateMcpServerResult, String> {
+    run_blocking_command(move || crate::mcp::create_mcp_server(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn mcp_update(
+    app: tauri::AppHandle,
+    input: crate::domain::UpdateMcpServerInput,
+) -> Result<crate::domain::McpServerDto, String> {
+    run_blocking_command(move || crate::mcp::update_mcp_server(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn mcp_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    run_blocking_command(move || crate::mcp::delete_mcp_server(&app, &id)).await
+}
+
+#[tauri::command]
+pub async fn mcp_install_global(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallMcpGlobalInput,
+) -> Result<crate::domain::InstallMcpResult, String> {
+    run_blocking_command(move || crate::mcp::install_mcp_global(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn mcp_uninstall_global(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallMcpGlobalInput,
+) -> Result<crate::domain::InstallMcpResult, String> {
+    run_blocking_command(move || crate::mcp::uninstall_mcp_global(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn mcp_install_to_project(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallMcpToProjectInput,
+) -> Result<crate::domain::InstallMcpResult, String> {
+    run_blocking_command(move || crate::mcp::install_mcp_to_project(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn mcp_uninstall_from_project(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallMcpToProjectInput,
+) -> Result<crate::domain::InstallMcpResult, String> {
+    run_blocking_command(move || crate::mcp::uninstall_mcp_from_project(&app, &input)).await
+}
+
+#[tauri::command]
+pub fn mcp_check_status(
+    app: tauri::AppHandle,
+    input: crate::domain::CheckMcpStatusInput,
+) -> Result<crate::domain::CheckMcpStatusResult, String> {
+    crate::mcp::check_mcp_status(&app, &input)
+}
+
+#[tauri::command]
+pub fn mcp_list_global_enabled_apps(
+    app: tauri::AppHandle,
+) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
+    crate::mcp::list_all_mcp_global_enabled_apps(&app)
+}
+
+#[tauri::command]
+pub async fn scan_external_mcp_servers(
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::domain::ExternalMcpServerDto>, String> {
+    run_blocking_command(move || crate::mcp::scan_external_mcp_servers(&app)).await
+}
+
+#[tauri::command]
+pub async fn mcp_import_external(
+    app: tauri::AppHandle,
+    input: crate::domain::ImportExternalMcpInput,
+) -> Result<crate::domain::CreateMcpServerResult, String> {
+    run_blocking_command(move || crate::mcp::import_external_mcp_server(&app, &input)).await
+}
+
+// ─── Plugin / Extension commands ──────────────────────────────────────────────
+
+#[tauri::command]
+pub fn plugin_list(app: tauri::AppHandle) -> Result<Vec<crate::domain::PluginDto>, String> {
+    crate::plugins::list_plugins(&app)
+}
+
+#[tauri::command]
+pub fn plugin_get(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Option<crate::domain::PluginDto>, String> {
+    crate::plugins::get_plugin(&app, &id)
+}
+
+#[tauri::command]
+pub async fn plugin_import_from_folder(
+    app: tauri::AppHandle,
+    input: crate::domain::ImportPluginFromFolderInput,
+) -> Result<crate::domain::ImportPluginOutcome, String> {
+    run_blocking_command(move || crate::plugins::import_plugin_from_folder(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn plugin_import_from_dialog(
+    app: tauri::AppHandle,
+) -> Result<Option<crate::domain::ImportPluginOutcome>, String> {
+    run_blocking_command(move || crate::plugins::import_plugin_from_dialog(&app)).await
+}
+
+#[tauri::command]
+pub async fn plugin_import_from_zip(
+    app: tauri::AppHandle,
+    zip_path: String,
+) -> Result<crate::domain::ImportPluginOutcome, String> {
+    run_blocking_command(move || crate::plugins::import_plugin_from_zip(&app, &zip_path)).await
+}
+
+#[tauri::command]
+pub async fn plugin_import_from_git(
+    app: tauri::AppHandle,
+    input: crate::domain::ImportPluginFromGitInput,
+) -> Result<crate::domain::ImportPluginOutcome, String> {
+    run_blocking_command(move || crate::plugins::import_plugin_from_git(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn plugin_import_staged(
+    app: tauri::AppHandle,
+    input: crate::domain::ImportStagedPluginsInput,
+) -> Result<crate::domain::ImportPluginBatchResult, String> {
+    run_blocking_command(move || crate::plugins::import_staged_plugins(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn plugin_discard_staged(staging_id: String) -> Result<(), String> {
+    run_blocking_command(move || {
+        crate::plugins::discard_staged_import(&staging_id);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn plugin_update_config(
+    app: tauri::AppHandle,
+    input: crate::domain::UpdatePluginConfigInput,
+) -> Result<crate::domain::PluginDto, String> {
+    run_blocking_command(move || crate::plugins::update_plugin_config(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn plugin_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    run_blocking_command(move || crate::plugins::delete_plugin(&app, &id)).await
+}
+
+#[tauri::command]
+pub async fn plugin_install_global(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallPluginGlobalInput,
+) -> Result<crate::domain::InstallPluginResult, String> {
+    run_blocking_command(move || crate::plugins::install_plugin_global(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn plugin_uninstall_global(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallPluginGlobalInput,
+) -> Result<crate::domain::InstallPluginResult, String> {
+    run_blocking_command(move || crate::plugins::uninstall_plugin_global(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn plugin_install_to_project(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallPluginToProjectInput,
+) -> Result<crate::domain::InstallPluginResult, String> {
+    run_blocking_command(move || crate::plugins::install_plugin_to_project(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn plugin_uninstall_from_project(
+    app: tauri::AppHandle,
+    input: crate::domain::InstallPluginToProjectInput,
+) -> Result<crate::domain::InstallPluginResult, String> {
+    run_blocking_command(move || crate::plugins::uninstall_plugin_from_project(&app, &input)).await
+}
+
+#[tauri::command]
+pub fn plugin_check_status(
+    app: tauri::AppHandle,
+    input: crate::domain::CheckPluginStatusInput,
+) -> Result<crate::domain::CheckPluginStatusResult, String> {
+    crate::plugins::check_plugin_status(&app, &input)
+}
+
+#[tauri::command]
+pub fn plugin_list_global_enabled_apps(
+    app: tauri::AppHandle,
+) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
+    crate::plugins::list_all_plugins_global_enabled_apps(&app)
+}
+
+// ─── SSH Remote Target commands ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn ssh_discover_hosts() -> Result<Vec<crate::domain::DiscoveredSshHost>, String> {
+    run_blocking_command(crate::ssh_sync::discover_ssh_hosts).await
+}
+
+#[tauri::command]
+pub async fn ssh_test_connection(
+    ssh: crate::domain::SshTargetConfig,
+) -> Result<crate::domain::SshConnectionTestResult, String> {
+    run_blocking_command(move || crate::ssh_sync::test_ssh_connection(&ssh)).await
+}
+
+#[tauri::command]
+pub async fn ssh_calibrate_target(
+    app: tauri::AppHandle,
+    app_id: String,
+) -> Result<crate::domain::SshAppSyncLedger, String> {
+    run_blocking_command(move || crate::ssh_sync::calibrate_ssh_target(&app, &app_id)).await
+}
+
+#[tauri::command]
+pub async fn ssh_sync_all_enabled(
+    app: tauri::AppHandle,
+    app_id: String,
+) -> Result<crate::domain::SshSyncSummaryResult, String> {
+    run_blocking_command(move || crate::ssh_sync::sync_all_enabled_to_ssh_target(&app, &app_id))
+        .await
 }

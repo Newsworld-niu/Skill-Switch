@@ -16,13 +16,14 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { APP_LIST } from "../context/AppContext";
+import { useApps } from "../context/AppContext";
 import { useSlashCommands } from "../context/SlashCommandContext";
 import { useToast } from "../components/ui/Toast";
 import { IconButton } from "../components/ui/IconButton";
 import {
   openSlashCommandWithTypora,
   readExternalSlashCommandContent,
+  slashCommandCheckSymlinkStatus,
   slashCommandExportToZip,
   slashCommandGetSourceDirPath,
   slashCommandImportFromDialog,
@@ -94,17 +95,15 @@ function getProvenanceBadge(provenance?: Provenance): string {
   }
 }
 
-function getAppMeta(appId: string) {
-  return APP_LIST.find((app) => app.id === appId) ?? null;
-}
-
 function CommandCard({
   command,
   selected,
+  scopeBadgeLabel,
   onClick,
 }: {
   command: SlashCommand;
   selected: boolean;
+  scopeBadgeLabel: string;
   onClick: () => void;
 }) {
   const iconColors = getIconColors(command.name);
@@ -135,7 +134,7 @@ function CommandCard({
           <p className={s.cardDesc}>{command.description || "无描述"}</p>
           <div className={s.cardFooter}>
             <span className={s.cardSlug}>{command.slug}</span>
-            <span className={s.cardBadgeExternal}>仅 Claude</span>
+            <span className={s.cardBadgeExternal}>{scopeBadgeLabel}</span>
           </div>
         </div>
       </div>
@@ -146,11 +145,13 @@ function CommandCard({
 function ExternalCommandCard({
   command,
   selected,
+  sourceLabel,
   onClick,
   onImport,
 }: {
   command: ExternalSlashCommand;
   selected: boolean;
+  sourceLabel: string;
   onClick: () => void;
   onImport: () => void;
 }) {
@@ -187,7 +188,7 @@ function ExternalCommandCard({
           <p className={s.cardDesc}>{command.description || "无描述"}</p>
           <div className={s.cardFooter}>
             <span className={s.cardSlug}>{command.slug}</span>
-            <span className={s.cardBadgeExternal}>仅 Claude</span>
+            <span className={s.cardBadgeExternal}>{sourceLabel}</span>
           </div>
         </div>
         <button
@@ -234,6 +235,7 @@ function SlashCommandDetail({
   onExport: () => void;
 }) {
   const { update } = useSlashCommands();
+  const { visibleCommandApps, allApps, getAppMeta } = useApps();
   const toast = useToast();
   const iconColors = getIconColors(command.name);
   const initial = command.name.charAt(0).toUpperCase();
@@ -243,15 +245,8 @@ function SlashCommandDetail({
   const [savingContent, setSavingContent] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
 
-  const globalStorageKey = `slash-command-global-${command.id}`;
-  const [globalApps, setGlobalAppsRaw] = useState<Record<string, boolean>>(
-    () => {
-      try {
-        const stored = localStorage.getItem(globalStorageKey);
-        if (stored) return JSON.parse(stored) as Record<string, boolean>;
-      } catch {}
-      return Object.fromEntries(APP_LIST.map((app) => [app.id, false]));
-    }
+  const [globalApps, setGlobalApps] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(allApps.map((app) => [app.id, false]))
   );
 
   const projectStorageKey = `slash-command-projects-${command.id}`;
@@ -265,33 +260,70 @@ function SlashCommandDetail({
     }
   );
 
-  const setGlobalApps = (
-    updater:
-      | Record<string, boolean>
-      | ((prev: Record<string, boolean>) => Record<string, boolean>)
-  ) => {
-    setGlobalAppsRaw((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try {
-        localStorage.setItem(globalStorageKey, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  };
+  const setProjectEnables = useCallback(
+    (
+      updater:
+        | ProjectEnableState[]
+        | ((prev: ProjectEnableState[]) => ProjectEnableState[])
+    ) => {
+      setProjectEnablesRaw((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        try {
+          localStorage.setItem(projectStorageKey, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    },
+    [projectStorageKey]
+  );
 
-  const setProjectEnables = (
-    updater:
-      | ProjectEnableState[]
-      | ((prev: ProjectEnableState[]) => ProjectEnableState[])
-  ) => {
-    setProjectEnablesRaw((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try {
-        localStorage.setItem(projectStorageKey, JSON.stringify(next));
-      } catch {}
-      return next;
+  // Sync real disk symlink status for global and project scopes
+  useEffect(() => {
+    if (tab !== "enable") return;
+    let disposed = false;
+
+    void slashCommandCheckSymlinkStatus({
+      commandId: command.id,
+      scope: "global",
+    }).then((res) => {
+      if (disposed || !res.ok) return;
+      const next: Record<string, boolean> = {};
+      for (const st of res.value.statuses) {
+        next[st.appId] = st.exists;
+      }
+      setGlobalApps(next);
     });
-  };
+
+    if (projectEnables.length > 0) {
+      void Promise.all(
+        projectEnables.map((proj) =>
+          slashCommandCheckSymlinkStatus({
+            commandId: command.id,
+            scope: "project",
+            projectPath: proj.projectPath,
+          })
+        )
+      ).then((checks) => {
+        if (disposed) return;
+        setProjectEnables((prev) =>
+          prev.map((proj, i) => {
+            const check = checks[i];
+            if (!check || !check.ok) return proj;
+            const nextApps: Record<string, boolean> = {};
+            for (const st of check.value.statuses) {
+              nextApps[st.appId] = st.exists;
+            }
+            return { ...proj, apps: nextApps };
+          })
+        );
+      });
+    }
+
+    return () => {
+      disposed = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [command.id, tab]);
 
   useEffect(() => {
     setTab("enable");
@@ -335,7 +367,7 @@ function SlashCommandDetail({
     const newState = !currentState;
     setGlobalApps((prev) => ({ ...prev, [appId]: newState }));
 
-    const appLabel = APP_LIST.find((app) => app.id === appId)?.label ?? appId;
+    const appLabel = getAppMeta(appId)?.label ?? appId;
     const tid = newState
       ? toast.loading(`正在写入全局 ${appLabel}…`)
       : toast.loading(`正在移除全局 ${appLabel}…`);
@@ -376,13 +408,26 @@ function SlashCommandDetail({
 
       const path = selected as string;
       const folderName = path.split(/[/\\]/).pop() || "未命名项目";
+      const check = await slashCommandCheckSymlinkStatus({
+        commandId: command.id,
+        scope: "project",
+        projectPath: path,
+      });
+      const initialApps = Object.fromEntries(
+        allApps.map((app) => [app.id, false])
+      );
+      if (check.ok) {
+        for (const st of check.value.statuses) {
+          initialApps[st.appId] = st.exists;
+        }
+      }
       setProjectEnables((prev) => [
         ...prev,
         {
           projectId: `project-${Date.now()}`,
           projectName: folderName,
           projectPath: path,
-          apps: Object.fromEntries(APP_LIST.map((app) => [app.id, false])),
+          apps: initialApps,
         },
       ]);
       toast.success(`已添加项目「${folderName}」`);
@@ -405,7 +450,7 @@ function SlashCommandDetail({
       )
     );
 
-    const appLabel = APP_LIST.find((app) => app.id === appId)?.label ?? appId;
+    const appLabel = getAppMeta(appId)?.label ?? appId;
     const tid = newState
       ? toast.loading(`正在写入 ${appLabel}…`)
       : toast.loading(`正在移除 ${appLabel}…`);
@@ -557,12 +602,12 @@ function SlashCommandDetail({
                 <span className={s.enableSectionHint}>(所有项目生效)</span>
               </div>
               <div className={s.globalApps}>
-                {APP_LIST.filter((a) => a.id === "claude").map((app) => (
+                {visibleCommandApps.map((app) => (
                   <label key={app.id} className={s.globalAppItem}>
                     <input
                       type="checkbox"
                       checked={!!globalApps[app.id]}
-                      onChange={() => toggleGlobalApp(app.id)}
+                      onChange={() => void toggleGlobalApp(app.id)}
                       style={{ accentColor: app.accentColor }}
                     />
                     <div>
@@ -601,23 +646,27 @@ function SlashCommandDetail({
                         variant="danger"
                         size="sm"
                         className={s.removeProjectBtn}
-                        onClick={() => removeProjectEnable(index)}
+                        onClick={() => void removeProjectEnable(index)}
                         aria-label={`移除项目 ${project.projectName}`}
                         title="移除项目"
                       />
                     </div>
                     <div className={s.projectApps}>
-                      {APP_LIST.filter((a) => a.id === "claude").map((app) => (
-                        <label key={app.id} className={s.projectAppItem}>
-                          <input
-                            type="checkbox"
-                            checked={!!project.apps[app.id]}
-                            onChange={() => toggleProjectApp(index, app.id)}
-                            style={{ accentColor: app.accentColor }}
-                          />
-                          <span>{app.label}</span>
-                        </label>
-                      ))}
+                      {visibleCommandApps
+                        .filter((a) => Boolean(a.projectCommandRelDir))
+                        .map((app) => (
+                          <label key={app.id} className={s.projectAppItem}>
+                            <input
+                              type="checkbox"
+                              checked={!!project.apps[app.id]}
+                              onChange={() =>
+                                void toggleProjectApp(index, app.id)
+                              }
+                              style={{ accentColor: app.accentColor }}
+                            />
+                            <span>{app.label}</span>
+                          </label>
+                        ))}
                     </div>
                   </div>
                 ))}
@@ -690,6 +739,7 @@ function ExternalCommandDetail({
   command: ExternalSlashCommand;
   onImport: () => void;
 }) {
+  const { getAppMeta } = useApps();
   const iconColors = getIconColors(command.name);
   const initial = command.name.charAt(0).toUpperCase();
   const appMeta = getAppMeta(command.appId);
@@ -921,6 +971,11 @@ export function MySlashCommandsPage({
     create,
     remove,
   } = useSlashCommands();
+  const { visibleCommandApps, getAppMeta } = useApps();
+  const scopeBadgeLabel =
+    visibleCommandApps.length === 1 && visibleCommandApps[0].id === "claude"
+      ? "仅 Claude"
+      : `${visibleCommandApps.length} 个端支持`;
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(
@@ -972,7 +1027,7 @@ export function MySlashCommandsPage({
         appLabel.includes(query)
       );
     });
-  }, [externalCommands, searchQuery]);
+  }, [externalCommands, getAppMeta, searchQuery]);
 
   const selectedCommand =
     activeCommandMode === "external"
@@ -1130,13 +1185,15 @@ export function MySlashCommandsPage({
 
       return filteredExternalCommands.map((command) => {
         const key = `${command.appId}:${command.slug}`;
+        const sourceLabel = getAppMeta(command.appId)?.label ?? command.appId;
         return (
           <ExternalCommandCard
             key={key}
             command={command}
             selected={selectedExternalKey === key}
+            sourceLabel={sourceLabel}
             onClick={() => setSelectedExternalKey(key)}
-            onImport={() => handleImportExternal(command)}
+            onImport={() => void handleImportExternal(command)}
           />
         );
       });
@@ -1157,6 +1214,7 @@ export function MySlashCommandsPage({
         key={command.id}
         command={command}
         selected={selectedId === command.id}
+        scopeBadgeLabel={scopeBadgeLabel}
         onClick={() => setSelectedId(command.id)}
       />
     ));

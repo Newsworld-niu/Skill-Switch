@@ -1,17 +1,18 @@
 use chrono::Utc;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use tauri::Manager;
 use uuid::Uuid;
 
 use crate::domain::{
-    AppSettings, BackupSourceConfig, BackupSourceStatus, BackupSyncResult, CheckSymlinkStatusInput,
+    AppSettings, BackupSourceConfig, BackupSourceStatus, BackupSyncResult,
+    CheckSlashCommandSymlinkInput, CheckSlashCommandSymlinkResult, CheckSymlinkStatusInput,
     CheckSymlinkStatusResult, CreateLegacySkillResult, CreateProjectInput, CreateSkillInput,
-    CreateSlashCommandInput, CreateSlashCommandResult, InstallRecord, InstallSkillGlobalInput,
-    InstallSkillGlobalResult, InstallSkillToProjectInput, InstallSkillToProjectResult,
-    InstallSlashCommandGlobalInput, InstallSlashCommandGlobalResult,
+    CreateSlashCommandInput, CreateSlashCommandResult, CustomAppConfig, InstallRecord,
+    InstallSkillGlobalInput, InstallSkillGlobalResult, InstallSkillToProjectInput,
+    InstallSkillToProjectResult, InstallSlashCommandGlobalInput, InstallSlashCommandGlobalResult,
     InstallSlashCommandToProjectInput, InstallSlashCommandToProjectResult, InstallStatus,
     InstallTarget, InstallTargetKind, LegacyProjectDto, LegacySkillDto, LocalProjectBinding,
     LocalState, PreviewDecisionAction, PreviewPlan, PreviewPlanKind, ProjectFileEntry,
@@ -32,6 +33,7 @@ const LIBRARY_FILE: &str = "library.json";
 const BACKUP_SOURCE_DIR: &str = "backup-source";
 const SKILL_SOURCES_DIR: &str = "skill-sources";
 const COMMAND_SOURCES_DIR: &str = "command-sources";
+pub(crate) const PLUGIN_SOURCES_DIR: &str = "plugin-sources";
 const DEFAULT_LIBRARY_REPO_DIR: &str = "library-repo";
 const STANDARD_SKILL_DIRECTORIES: &[&str] = &["scripts", "references", "assets"];
 
@@ -93,11 +95,25 @@ pub fn normalize_user_path(path: &str) -> Result<PathBuf, String> {
     }
 }
 
+pub(crate) const BUILTIN_APP_IDS: &[&str] = &[
+    "claude",
+    "codex",
+    "cursor",
+    "antigravity",
+    "gemini",
+    "windsurf",
+    "t3",
+];
+
 fn app_cli_dir_aliases(app_id: &str) -> Option<&'static [&'static str]> {
     match app_id {
         "claude" => Some(&[".claude"]),
         "codex" => Some(&[".codex"]),
         "cursor" => Some(&[".cursor"]),
+        "antigravity" => Some(&[".agents", ".agent"]),
+        "gemini" => Some(&[".gemini"]),
+        "windsurf" => Some(&[".windsurf"]),
+        "t3" => Some(&[".agents"]),
         _ => None,
     }
 }
@@ -121,41 +137,304 @@ fn app_skill_dirs(base_path: &Path, app_id: &str) -> Result<Vec<PathBuf>, String
         .collect())
 }
 
-fn preferred_app_skill_path(base_path: &Path, app_id: &str, slug: &str) -> Result<PathBuf, String> {
-    Ok(preferred_app_cli_dir(base_path, app_id)?
-        .join("skills")
-        .join(slug))
+pub(crate) fn expand_home_dir(home: &Path, raw: &str) -> PathBuf {
+    let trimmed = raw.trim();
+    if trimmed == "~" {
+        return home.to_path_buf();
+    }
+    if let Some(rest) = trimmed
+        .strip_prefix("~/")
+        .or_else(|| trimmed.strip_prefix("~\\"))
+    {
+        return home.join(rest);
+    }
+    let candidate = Path::new(trimmed);
+    if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        home.join(candidate)
+    }
 }
 
-fn app_skill_paths(base_path: &Path, app_id: &str, slug: &str) -> Result<Vec<PathBuf>, String> {
-    Ok(app_skill_dirs(base_path, app_id)?
-        .into_iter()
-        .map(|dir| dir.join(slug))
-        .collect())
+pub(crate) fn resolve_project_subpath(project_root: &Path, raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("项目相对路径不能为空".to_string());
+    }
+    let cleaned = trimmed
+        .trim_start_matches("./")
+        .trim_start_matches(".\\")
+        .trim_start_matches('/')
+        .trim_start_matches('\\');
+    if cleaned.is_empty() {
+        return Err("项目相对路径无效".to_string());
+    }
+    let rel_path = Path::new(cleaned);
+    for component in rel_path.components() {
+        if matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        ) {
+            return Err(format!("项目相对路径不允许越界: {}", raw));
+        }
+    }
+    Ok(project_root.join(rel_path))
 }
 
-fn app_command_dirs(base_path: &Path, app_id: &str) -> Result<Vec<PathBuf>, String> {
-    Ok(app_cli_dirs(base_path, app_id)?
-        .into_iter()
-        .map(|dir| dir.join("commands"))
-        .collect())
+pub(crate) fn load_custom_apps(app: &tauri::AppHandle) -> Vec<CustomAppConfig> {
+    load_settings(app)
+        .map(|settings| settings.custom_apps)
+        .unwrap_or_default()
 }
 
-fn preferred_app_command_path(
-    base_path: &Path,
+pub(crate) fn all_configured_app_ids(custom_apps: &[CustomAppConfig]) -> Vec<String> {
+    let mut ids: Vec<String> = BUILTIN_APP_IDS.iter().map(|id| (*id).to_string()).collect();
+    for custom in custom_apps {
+        if !ids.iter().any(|existing| existing == &custom.id) {
+            ids.push(custom.id.clone());
+        }
+    }
+    ids
+}
+
+pub(crate) fn global_skill_dirs_for_app(
+    home: &Path,
+    app_id: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    match app_id {
+        "claude" => Ok(vec![home.join(".claude").join("skills")]),
+        "codex" => Ok(vec![home.join(".codex").join("skills")]),
+        "cursor" => Ok(vec![home.join(".cursor").join("skills")]),
+        "antigravity" => Ok(vec![
+            home.join(".gemini").join("config").join("skills"),
+            home.join(".gemini").join("antigravity").join("skills"),
+        ]),
+        "gemini" => Ok(vec![home.join(".gemini").join("skills")]),
+        "windsurf" => Ok(vec![
+            home.join(".codeium").join("windsurf").join("skills"),
+            home.join(".windsurf").join("skills"),
+        ]),
+        "t3" => Ok(vec![home.join(".agents").join("skills")]),
+        _ => {
+            let custom = custom_apps
+                .iter()
+                .find(|item| item.id == app_id)
+                .ok_or_else(|| format!("未知的应用: {}", app_id))?;
+            if crate::ssh_sync::is_ssh_app(app_id, custom_apps) {
+                return Ok(Vec::new());
+            }
+            Ok(vec![expand_home_dir(home, &custom.global_skill_dir)])
+        }
+    }
+}
+
+pub(crate) fn project_skill_dirs_for_app(
+    project_root: &Path,
+    app_id: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    match app_id {
+        "claude" => Ok(vec![project_root.join(".claude").join("skills")]),
+        "codex" => Ok(vec![project_root.join(".codex").join("skills")]),
+        "cursor" => Ok(vec![project_root.join(".cursor").join("skills")]),
+        "antigravity" => Ok(vec![
+            project_root.join(".agents").join("skills"),
+            project_root.join(".agent").join("skills"),
+        ]),
+        "gemini" => Ok(vec![project_root.join(".gemini").join("skills")]),
+        "windsurf" => Ok(vec![project_root.join(".windsurf").join("skills")]),
+        "t3" => Ok(vec![project_root.join(".agents").join("skills")]),
+        _ => {
+            let custom = custom_apps
+                .iter()
+                .find(|item| item.id == app_id)
+                .ok_or_else(|| format!("未知的应用: {}", app_id))?;
+            if crate::ssh_sync::is_ssh_app(app_id, custom_apps) {
+                return Err(format!(
+                    "SSH 远程目标端 {} 不支持本地项目级目录挂载",
+                    custom.label
+                ));
+            }
+            let rel = custom
+                .project_skill_dir
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .ok_or_else(|| format!("应用 {} 未配置项目级 Skills 目录", custom.label))?;
+            Ok(vec![resolve_project_subpath(project_root, rel)?])
+        }
+    }
+}
+
+fn preferred_global_skill_path(
+    home: &Path,
     app_id: &str,
     slug: &str,
+    custom_apps: &[CustomAppConfig],
 ) -> Result<PathBuf, String> {
-    Ok(preferred_app_cli_dir(base_path, app_id)?
-        .join("commands")
-        .join(slug))
+    global_skill_dirs_for_app(home, app_id, custom_apps)?
+        .into_iter()
+        .next()
+        .map(|dir| dir.join(slug))
+        .ok_or_else(|| format!("未知的应用: {}", app_id))
 }
 
-fn app_command_paths(base_path: &Path, app_id: &str, slug: &str) -> Result<Vec<PathBuf>, String> {
-    Ok(app_command_dirs(base_path, app_id)?
+fn global_skill_paths(
+    home: &Path,
+    app_id: &str,
+    slug: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    Ok(global_skill_dirs_for_app(home, app_id, custom_apps)?
         .into_iter()
         .map(|dir| dir.join(slug))
         .collect())
+}
+
+fn preferred_project_skill_path(
+    project_root: &Path,
+    app_id: &str,
+    slug: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<PathBuf, String> {
+    project_skill_dirs_for_app(project_root, app_id, custom_apps)?
+        .into_iter()
+        .next()
+        .map(|dir| dir.join(slug))
+        .ok_or_else(|| format!("未知的应用: {}", app_id))
+}
+
+fn project_skill_paths(
+    project_root: &Path,
+    app_id: &str,
+    slug: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    Ok(
+        project_skill_dirs_for_app(project_root, app_id, custom_apps)?
+            .into_iter()
+            .map(|dir| dir.join(slug))
+            .collect(),
+    )
+}
+
+pub(crate) fn global_command_dirs_for_app(
+    home: &Path,
+    app_id: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    match app_id {
+        "claude" => Ok(vec![home.join(".claude").join("commands")]),
+        "codex" => Ok(vec![home.join(".codex").join("commands")]),
+        "cursor" => Ok(vec![home.join(".cursor").join("commands")]),
+        "gemini" => Ok(vec![home.join(".gemini").join("commands")]),
+        "windsurf" => Ok(vec![
+            home.join(".codeium").join("windsurf").join("workflows"),
+            home.join(".windsurf").join("workflows"),
+        ]),
+        "antigravity" | "t3" => Ok(Vec::new()),
+        _ => {
+            let custom = custom_apps
+                .iter()
+                .find(|item| item.id == app_id)
+                .ok_or_else(|| format!("未知的应用: {}", app_id))?;
+            if crate::ssh_sync::is_ssh_app(app_id, custom_apps) {
+                return Ok(Vec::new());
+            }
+            match custom
+                .global_command_dir
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                Some(dir) => Ok(vec![expand_home_dir(home, dir)]),
+                None => Ok(Vec::new()),
+            }
+        }
+    }
+}
+
+pub(crate) fn project_command_dirs_for_app(
+    project_root: &Path,
+    app_id: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    match app_id {
+        "claude" => Ok(vec![project_root.join(".claude").join("commands")]),
+        "codex" => Ok(vec![project_root.join(".codex").join("commands")]),
+        "cursor" => Ok(vec![project_root.join(".cursor").join("commands")]),
+        "gemini" => Ok(vec![project_root.join(".gemini").join("commands")]),
+        "windsurf" => Ok(vec![project_root.join(".windsurf").join("workflows")]),
+        "antigravity" | "t3" => Ok(Vec::new()),
+        _ => {
+            let custom = custom_apps
+                .iter()
+                .find(|item| item.id == app_id)
+                .ok_or_else(|| format!("未知的应用: {}", app_id))?;
+            if crate::ssh_sync::is_ssh_app(app_id, custom_apps) {
+                return Ok(Vec::new());
+            }
+            match custom
+                .project_command_dir
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                Some(rel) => Ok(vec![resolve_project_subpath(project_root, rel)?]),
+                None => Ok(Vec::new()),
+            }
+        }
+    }
+}
+
+fn preferred_global_command_path(
+    home: &Path,
+    app_id: &str,
+    slug: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<PathBuf, String> {
+    global_command_dirs_for_app(home, app_id, custom_apps)?
+        .into_iter()
+        .next()
+        .map(|dir| dir.join(slug))
+        .ok_or_else(|| format!("应用 {} 未配置全局 Commands 目录", app_id))
+}
+
+fn global_command_paths(
+    home: &Path,
+    app_id: &str,
+    slug: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    Ok(global_command_dirs_for_app(home, app_id, custom_apps)?
+        .into_iter()
+        .map(|dir| dir.join(slug))
+        .collect())
+}
+
+fn preferred_project_command_path(
+    project_root: &Path,
+    app_id: &str,
+    slug: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<PathBuf, String> {
+    project_command_dirs_for_app(project_root, app_id, custom_apps)?
+        .into_iter()
+        .next()
+        .map(|dir| dir.join(slug))
+        .ok_or_else(|| format!("应用 {} 未配置项目级 Commands 目录", app_id))
+}
+
+fn project_command_paths(
+    project_root: &Path,
+    app_id: &str,
+    slug: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<Vec<PathBuf>, String> {
+    Ok(
+        project_command_dirs_for_app(project_root, app_id, custom_apps)?
+            .into_iter()
+            .map(|dir| dir.join(slug))
+            .collect(),
+    )
 }
 
 fn local_state_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -594,7 +873,7 @@ fn reconcile_managed_skills_from_backup_clone(clone_dir: &Path) -> Result<bool, 
         }
 
         let slug = entry.file_name().to_string_lossy().into_owned();
-        if slug.starts_with('.') {
+        if slug.starts_with('.') || slug == COMMAND_SOURCES_DIR || slug == PLUGIN_SOURCES_DIR {
             continue;
         }
 
@@ -699,12 +978,18 @@ fn reconcile_managed_skills_from_backup_clone(clone_dir: &Path) -> Result<bool, 
     Ok(changed)
 }
 
-fn parse_skill_front_matter(content: &str) -> (Option<String>, Option<String>, Vec<String>) {
-    let Some(rest) = content.strip_prefix("---\n") else {
+pub(crate) fn parse_skill_front_matter(
+    content: &str,
+) -> (Option<String>, Option<String>, Vec<String>) {
+    let normalized = content.replace("\r\n", "\n");
+    let Some(rest) = normalized.strip_prefix("---\n") else {
         return (None, None, vec![]);
     };
 
-    let Some((front_matter, _)) = rest.split_once("\n---\n") else {
+    let Some((front_matter, _)) = rest
+        .split_once("\n---\n")
+        .or_else(|| rest.strip_suffix("\n---").map(|fm| (fm, "")))
+    else {
         return (None, None, vec![]);
     };
 
@@ -712,26 +997,105 @@ fn parse_skill_front_matter(content: &str) -> (Option<String>, Option<String>, V
     let mut description = None;
     let mut tags = Vec::new();
 
-    for line in front_matter.lines() {
-        if let Some(value) = line.strip_prefix("name:") {
-            name = Some(value.trim().trim_matches('"').to_string());
+    let lines: Vec<&str> = front_matter.lines().collect();
+    let mut idx = 0;
+
+    while idx < lines.len() {
+        let line = lines[idx];
+
+        if let Some(raw_val) = line.strip_prefix("name:") {
+            let cleaned = raw_val.trim().trim_matches('"').trim_matches('\'').trim();
+            if !cleaned.is_empty() {
+                name = Some(cleaned.to_string());
+            }
+            idx += 1;
             continue;
         }
-        if let Some(value) = line.strip_prefix("description:") {
-            description = Some(value.trim().trim_matches('"').to_string());
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("tags:") {
-            let trimmed = value.trim().trim_start_matches('[').trim_end_matches(']');
-            if !trimmed.is_empty() {
-                tags = trimmed
-                    .split(',')
-                    .map(|tag| tag.trim().trim_matches('"').trim_matches('\''))
-                    .filter(|tag| !tag.is_empty())
-                    .map(|tag| tag.to_string())
-                    .collect();
+
+        if let Some(raw_val) = line.strip_prefix("description:") {
+            let trimmed = raw_val.trim();
+            if trimmed == ">"
+                || trimmed == ">-"
+                || trimmed == "|+"
+                || trimmed == "|-"
+                || trimmed == "|"
+                || trimmed.is_empty()
+            {
+                let preserve_newlines = trimmed.starts_with('|');
+                let mut block_lines = Vec::new();
+                idx += 1;
+                while idx < lines.len() {
+                    let next_line = lines[idx];
+                    if next_line.starts_with(' ') || next_line.starts_with('\t') {
+                        block_lines.push(next_line.trim());
+                        idx += 1;
+                    } else if next_line.trim().is_empty() {
+                        if preserve_newlines && !block_lines.is_empty() {
+                            block_lines.push("");
+                        }
+                        idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let joined = if preserve_newlines {
+                    block_lines.join("\n").trim().to_string()
+                } else {
+                    block_lines
+                        .into_iter()
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                if !joined.is_empty() {
+                    description = Some(joined);
+                }
+                continue;
+            } else {
+                let cleaned = trimmed.trim_matches('"').trim_matches('\'').trim();
+                if !cleaned.is_empty() {
+                    description = Some(cleaned.to_string());
+                }
+                idx += 1;
+                continue;
             }
         }
+
+        if let Some(raw_val) = line.strip_prefix("tags:") {
+            let trimmed = raw_val.trim();
+            if trimmed.is_empty() {
+                idx += 1;
+                while idx < lines.len() {
+                    let next_line = lines[idx].trim();
+                    if let Some(item) = next_line.strip_prefix('-') {
+                        let cleaned = item.trim().trim_matches('"').trim_matches('\'').trim();
+                        if !cleaned.is_empty() {
+                            tags.push(cleaned.to_string());
+                        }
+                        idx += 1;
+                    } else if next_line.is_empty() {
+                        idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+                continue;
+            } else {
+                let inner = trimmed.trim_start_matches('[').trim_end_matches(']');
+                if !inner.is_empty() {
+                    tags = inner
+                        .split(',')
+                        .map(|tag| tag.trim().trim_matches('"').trim_matches('\''))
+                        .filter(|tag| !tag.is_empty())
+                        .map(|tag| tag.to_string())
+                        .collect();
+                }
+                idx += 1;
+                continue;
+            }
+        }
+
+        idx += 1;
     }
 
     (name, description, tags)
@@ -901,7 +1265,7 @@ fn create_legacy_skill_internal(
     })
 }
 
-fn sync_after_mutation(app: &tauri::AppHandle, message: &str) -> BackupSyncResult {
+pub(crate) fn sync_after_mutation(app: &tauri::AppHandle, message: &str) -> BackupSyncResult {
     let clone_dir = match persistent_clone_dir(app) {
         Ok(Some(d)) if d.exists() => d,
         Ok(Some(_)) | Ok(None) => {
@@ -1043,7 +1407,8 @@ pub fn update_legacy_skill(
         .ok_or_else(|| format!("skill {} not found", input.id))?;
     let result = resource_to_legacy_skill(resource, &library);
     save_repo_library(&repo_root, &library)?;
-    ensure_skill_source(app, &resource.slug, &resource.content)?;
+    let source_dir = ensure_skill_source(app, &resource.slug, &resource.content)?;
+    crate::ssh_sync::resync_skill_to_enabled_ssh_apps(app, &resource.slug, &source_dir);
 
     // Sync update to persistent clone
     let _backup_sync = sync_after_mutation(app, &format!("Update skill: {}", result.name));
@@ -1101,6 +1466,8 @@ pub fn sync_legacy_skill_from_source(
         let _backup_sync =
             sync_after_mutation(app, &format!("Update skill from source: {}", resource_name));
     }
+    let slug = library.resources[resource_index].slug.clone();
+    crate::ssh_sync::resync_skill_to_enabled_ssh_apps(app, &slug, &skill_dir);
 
     Ok(resource_to_legacy_skill(
         &library.resources[resource_index],
@@ -1124,6 +1491,46 @@ pub fn delete_legacy_skill(app: &tauri::AppHandle, id: &str) -> Result<(), Strin
     save_repo_library(&repo_root, &library)?;
 
     let source_dir = skill_source_dir(app, &removed_slug)?;
+    let custom_apps = load_custom_apps(app);
+    if let Ok(home_dir) = app.path().home_dir() {
+        for app_id in all_configured_app_ids(&custom_apps) {
+            if crate::ssh_sync::is_ssh_app(&app_id, &custom_apps) {
+                continue;
+            }
+            if let Ok(paths) = global_skill_paths(&home_dir, &app_id, &removed_slug, &custom_apps) {
+                for path in paths {
+                    if is_symlink(&path) {
+                        let _ = remove_symlink(&path);
+                    }
+                }
+            }
+        }
+    }
+
+    let initial_ledgers = load_local_state(app)
+        .map(|s| s.ssh_ledgers)
+        .unwrap_or_default();
+    for (app_id, ledger) in &initial_ledgers {
+        if ledger.skills.contains(&removed_slug) {
+            if let Some(custom) = crate::ssh_sync::find_ssh_app(app_id, &custom_apps) {
+                let _ = crate::ssh_sync::uninstall_skill_ssh(app, custom, &removed_slug);
+            }
+        }
+    }
+    if let Ok(mut state) = load_local_state(app) {
+        let mut ledger_changed = false;
+        for ledger in state.ssh_ledgers.values_mut() {
+            let before = ledger.skills.len();
+            ledger.skills.retain(|s| s != &removed_slug);
+            if ledger.skills.len() != before {
+                ledger_changed = true;
+            }
+        }
+        if ledger_changed {
+            let _ = save_local_state(app, &state);
+        }
+    }
+
     if source_dir.exists() {
         remove_path(&source_dir)?;
     }
@@ -1310,7 +1717,9 @@ pub fn update_slash_command(
         .ok_or_else(|| format!("slash command {} not found", input.id))?;
     let result = resource_to_slash_command(resource, &library);
     save_repo_library(&repo_root, &library)?;
-    ensure_slash_command_source(app, &resource.slug, &resource.content)?;
+    let source_dir = ensure_slash_command_source(app, &resource.slug, &resource.content)?;
+    let cmd_md_path = source_dir.join("COMMAND.md");
+    crate::ssh_sync::resync_command_to_enabled_ssh_apps(app, &resource.slug, &cmd_md_path);
 
     let _backup_sync = sync_after_mutation(app, &format!("Update slash command: {}", result.name));
 
@@ -1370,6 +1779,8 @@ pub fn sync_slash_command_from_source(
             &format!("Update slash command from source: {}", resource_name),
         );
     }
+    let slug = library.resources[resource_index].slug.clone();
+    crate::ssh_sync::resync_command_to_enabled_ssh_apps(app, &slug, &command_file);
 
     Ok(resource_to_slash_command(
         &library.resources[resource_index],
@@ -1393,6 +1804,47 @@ pub fn delete_slash_command(app: &tauri::AppHandle, id: &str) -> Result<(), Stri
     save_repo_library(&repo_root, &library)?;
 
     let source_dir = slash_command_source_dir(app, &removed_slug)?;
+    let custom_apps = load_custom_apps(app);
+    if let Ok(home_dir) = app.path().home_dir() {
+        for app_id in all_configured_app_ids(&custom_apps) {
+            if crate::ssh_sync::is_ssh_app(&app_id, &custom_apps) {
+                continue;
+            }
+            if let Ok(paths) = global_command_paths(&home_dir, &app_id, &removed_slug, &custom_apps)
+            {
+                for path in paths {
+                    if is_symlink(&path) {
+                        let _ = remove_symlink(&path);
+                    }
+                }
+            }
+        }
+    }
+
+    let initial_ledgers = load_local_state(app)
+        .map(|s| s.ssh_ledgers)
+        .unwrap_or_default();
+    for (app_id, ledger) in &initial_ledgers {
+        if ledger.commands.contains(&removed_slug) {
+            if let Some(custom) = crate::ssh_sync::find_ssh_app(app_id, &custom_apps) {
+                let _ = crate::ssh_sync::uninstall_command_ssh(app, custom, &removed_slug);
+            }
+        }
+    }
+    if let Ok(mut state) = load_local_state(app) {
+        let mut ledger_changed = false;
+        for ledger in state.ssh_ledgers.values_mut() {
+            let before = ledger.commands.len();
+            ledger.commands.retain(|c| c != &removed_slug);
+            if ledger.commands.len() != before {
+                ledger_changed = true;
+            }
+        }
+        if ledger_changed {
+            let _ = save_local_state(app, &state);
+        }
+    }
+
     if source_dir.exists() {
         remove_path(&source_dir)?;
     }
@@ -1618,6 +2070,14 @@ fn project_target_path(project_root: &Path, resource: &Resource) -> (PathBuf, St
         }
         ResourceKind::Prompt => {
             let relative = format!(".codex/prompts/{}.md", resource.slug);
+            (project_root.join(&relative), relative)
+        }
+        ResourceKind::McpServer => {
+            let relative = ".codex/config.toml".to_string();
+            (project_root.join(&relative), relative)
+        }
+        ResourceKind::Plugin => {
+            let relative = format!(".codex/plugins/{}/plugin.json", resource.slug);
             (project_root.join(&relative), relative)
         }
     }
@@ -2435,6 +2895,8 @@ pub fn scan_global_environment(app: &tauri::AppHandle) -> Result<RecoveryScanRes
                 ResourceKind::SlashCommand => "slash-command",
                 ResourceKind::Prompt => "prompt",
                 ResourceKind::Agents => "agents",
+                ResourceKind::McpServer => "mcp-server",
+                ResourceKind::Plugin => "plugin",
             }
             .into(),
             name: resource.title.clone(),
@@ -2976,7 +3438,7 @@ fn target_kind_for_resource(resource: &Resource) -> InstallTargetKind {
                 InstallTargetKind::GlobalCodexSlashCommand
             }
         }
-        ResourceKind::Skill => {
+        ResourceKind::Skill | ResourceKind::McpServer | ResourceKind::Plugin => {
             if resource.scope == ResourceScope::Project {
                 InstallTargetKind::ProjectCodexSkill
             } else {
@@ -3087,6 +3549,11 @@ fn global_target_path(codex_home: &Path, resource: &Resource) -> PathBuf {
             .join("prompts")
             .join(format!("{}.md", resource.slug)),
         ResourceKind::Agents => codex_home.join("AGENTS.md"),
+        ResourceKind::McpServer => codex_home.join("config.toml"),
+        ResourceKind::Plugin => codex_home
+            .join("plugins")
+            .join(&resource.slug)
+            .join("plugin.json"),
     }
 }
 
@@ -3140,6 +3607,8 @@ fn default_source_path_for_resource(resource: &Resource) -> String {
         ResourceKind::SlashCommand => "COMMAND.md".into(),
         ResourceKind::Prompt => format!("{}.md", resource.slug),
         ResourceKind::Agents => "AGENTS.md".into(),
+        ResourceKind::McpServer => "mcp.json".into(),
+        ResourceKind::Plugin => "plugin.json".into(),
     }
 }
 
@@ -3283,6 +3752,98 @@ fn backup_source_settings(app: &tauri::AppHandle) -> Result<Option<BackupSourceC
         .transpose()
 }
 
+fn normalize_optional_dir(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_ssh_config(
+    ssh: &Option<crate::domain::SshTargetConfig>,
+) -> Option<crate::domain::SshTargetConfig> {
+    let cfg = ssh.as_ref()?;
+    let host = cfg.host.trim().to_string();
+    if host.is_empty() {
+        return None;
+    }
+    Some(crate::domain::SshTargetConfig {
+        host,
+        user: normalize_optional_dir(&cfg.user),
+        port: cfg.port.filter(|&p| p > 0),
+        identity_file: normalize_optional_dir(&cfg.identity_file),
+        remote_app_preset: normalize_optional_dir(&cfg.remote_app_preset),
+        global_plugin_dir: normalize_optional_dir(&cfg.global_plugin_dir),
+        inject_secrets: cfg.inject_secrets,
+    })
+}
+
+fn normalize_custom_apps(apps: &[CustomAppConfig]) -> Vec<CustomAppConfig> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for item in apps {
+        let id = item.id.trim().to_string();
+        let label = item.label.trim().to_string();
+        let global_skill_dir = item.global_skill_dir.trim().to_string();
+        let ssh = normalize_ssh_config(&item.ssh);
+        if id.is_empty()
+            || label.is_empty()
+            || global_skill_dir.is_empty()
+            || BUILTIN_APP_IDS.contains(&id.as_str())
+            || (item.ssh.is_some() && ssh.is_none())
+            || !seen.insert(id.clone())
+        {
+            continue;
+        }
+        let accent_color = if item.accent_color.trim().is_empty() {
+            "#6366f1".to_string()
+        } else {
+            item.accent_color.trim().to_string()
+        };
+        let is_ssh = ssh.is_some();
+        normalized.push(CustomAppConfig {
+            id,
+            label,
+            accent_color,
+            global_skill_dir,
+            project_skill_dir: if is_ssh {
+                None
+            } else {
+                normalize_optional_dir(&item.project_skill_dir)
+            },
+            global_command_dir: normalize_optional_dir(&item.global_command_dir),
+            project_command_dir: if is_ssh {
+                None
+            } else {
+                normalize_optional_dir(&item.project_command_dir)
+            },
+            global_mcp_config_path: normalize_optional_dir(&item.global_mcp_config_path),
+            project_mcp_config_path: if is_ssh {
+                None
+            } else {
+                normalize_optional_dir(&item.project_mcp_config_path)
+            },
+            mcp_format: normalize_optional_dir(&item.mcp_format),
+            mcp_root_key: normalize_optional_dir(&item.mcp_root_key),
+            ssh,
+        });
+    }
+    normalized
+}
+
+fn dedupe_string_list(items: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for raw in items {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
 fn load_settings(app: &tauri::AppHandle) -> Result<AppSettings, String> {
     let path = settings_path(app)?;
     if !path.exists() {
@@ -3303,6 +3864,9 @@ fn load_settings(app: &tauri::AppHandle) -> Result<AppSettings, String> {
         settings.third_party_repos =
             crate::repo_sources::normalize_repo_list(app, &settings.third_party_repos)?;
     }
+    settings.custom_apps = normalize_custom_apps(&settings.custom_apps);
+    settings.hidden_app_ids = dedupe_string_list(&settings.hidden_app_ids);
+    settings.default_install_app_ids = dedupe_string_list(&settings.default_install_app_ids);
     settings.backup_path = Some(resolved_backup_path(app)?);
     Ok(settings)
 }
@@ -3322,6 +3886,10 @@ fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), S
         .transpose()?;
     next_settings.third_party_repos =
         crate::repo_sources::normalize_repo_list(app, &next_settings.third_party_repos)?;
+    next_settings.custom_apps = normalize_custom_apps(&next_settings.custom_apps);
+    next_settings.hidden_app_ids = dedupe_string_list(&next_settings.hidden_app_ids);
+    next_settings.default_install_app_ids =
+        dedupe_string_list(&next_settings.default_install_app_ids);
 
     let content =
         serde_json::to_string_pretty(&next_settings).map_err(|error| error.to_string())?;
@@ -3380,12 +3948,13 @@ pub fn install_skill_to_project(
 
     let slug = &skill.slug;
     let source_dir = ensure_skill_source_for_skill(app, &skill)?;
+    let custom_apps = load_custom_apps(app);
 
     let mut installed_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = preferred_app_skill_path(&project_path, app_id, slug)
+        let result = preferred_project_skill_path(&project_path, app_id, slug, &custom_apps)
             .and_then(|link_path| create_skill_symlink(&link_path, &source_dir));
 
         if result.is_ok() {
@@ -3421,17 +3990,19 @@ pub fn uninstall_skill_from_project(
     }
 
     let slug = &skill.slug;
+    let custom_apps = load_custom_apps(app);
 
     let mut uninstalled_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = app_skill_paths(&project_path, app_id, slug).and_then(|paths| {
-            for path in paths {
-                remove_symlink(&path)?;
-            }
-            Ok(())
-        });
+        let result =
+            project_skill_paths(&project_path, app_id, slug, &custom_apps).and_then(|paths| {
+                for path in paths {
+                    remove_symlink(&path)?;
+                }
+                Ok(())
+            });
 
         if result.is_ok() {
             uninstalled_apps.push(app_id.clone());
@@ -3462,12 +4033,14 @@ pub fn install_slash_command_to_project(
     }
 
     let source_dir = ensure_slash_command_source_for_command(app, &command)?;
+    let custom_apps = load_custom_apps(app);
     let mut installed_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = preferred_app_command_path(&project_path, app_id, &command.slug)
-            .and_then(|link_path| create_skill_symlink(&link_path, &source_dir));
+        let result =
+            preferred_project_command_path(&project_path, app_id, &command.slug, &custom_apps)
+                .and_then(|link_path| create_skill_symlink(&link_path, &source_dir));
 
         if result.is_ok() {
             installed_apps.push(app_id.clone());
@@ -3497,16 +4070,18 @@ pub fn uninstall_slash_command_from_project(
         ));
     }
 
+    let custom_apps = load_custom_apps(app);
     let mut uninstalled_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = app_command_paths(&project_path, app_id, &command.slug).and_then(|paths| {
-            for path in paths {
-                remove_symlink(&path)?;
-            }
-            Ok(())
-        });
+        let result = project_command_paths(&project_path, app_id, &command.slug, &custom_apps)
+            .and_then(|paths| {
+                for path in paths {
+                    remove_symlink(&path)?;
+                }
+                Ok(())
+            });
 
         if result.is_ok() {
             uninstalled_apps.push(app_id.clone());
@@ -3609,7 +4184,7 @@ pub fn remove_symlink(link_path: &Path) -> Result<(), String> {
 // =============================================================================
 
 /// Get the persistent clone directory (primary storage when backup source is configured).
-fn persistent_clone_dir(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+pub(crate) fn persistent_clone_dir(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
     let config = backup_source_settings(app)?;
     match config {
         Some(config) => {
@@ -3625,7 +4200,7 @@ fn persistent_clone_dir(app: &tauri::AppHandle) -> Result<Option<PathBuf>, Strin
 /// Get the directory where skill source files are stored.
 /// When a backup source is configured and the persistent clone exists, returns that directory.
 /// Otherwise falls back to the legacy skill-sources directory.
-fn skill_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn skill_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Some(clone_dir) = persistent_clone_dir(app)? {
         if clone_dir.exists() {
             return Ok(clone_dir);
@@ -3638,7 +4213,7 @@ fn skill_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Get the source directory for a specific skill
-fn skill_source_dir(app: &tauri::AppHandle, slug: &str) -> Result<PathBuf, String> {
+pub(crate) fn skill_source_dir(app: &tauri::AppHandle, slug: &str) -> Result<PathBuf, String> {
     skill_sources_dir(app).map(|dir| dir.join(slug))
 }
 
@@ -3707,7 +4282,7 @@ fn validate_standard_skill_directories(directories: &[String]) -> Result<Vec<Str
 
 /// Ensure the skill source file exists in the app data directory
 /// Returns the path to the skill source directory
-fn ensure_skill_source(
+pub(crate) fn ensure_skill_source(
     app: &tauri::AppHandle,
     slug: &str,
     content: &str,
@@ -3725,7 +4300,7 @@ fn ensure_skill_source_with_directories(
     ensure_skill_source_in_root(&sources_root, slug, content, directories)
 }
 
-fn ensure_skill_source_for_skill(
+pub(crate) fn ensure_skill_source_for_skill(
     app: &tauri::AppHandle,
     skill: &LegacySkillDto,
 ) -> Result<PathBuf, String> {
@@ -3765,7 +4340,7 @@ fn ensure_skill_source_in_root(
     Ok(source_dir)
 }
 
-fn slash_command_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn slash_command_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Some(clone_dir) = persistent_clone_dir(app)? {
         if clone_dir.exists() {
             return Ok(clone_dir.join(COMMAND_SOURCES_DIR));
@@ -3777,7 +4352,10 @@ fn slash_command_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> 
         .map(|path| path.join(COMMAND_SOURCES_DIR))
 }
 
-fn slash_command_source_dir(app: &tauri::AppHandle, slug: &str) -> Result<PathBuf, String> {
+pub(crate) fn slash_command_source_dir(
+    app: &tauri::AppHandle,
+    slug: &str,
+) -> Result<PathBuf, String> {
     slash_command_sources_dir(app).map(|dir| dir.join(slug))
 }
 
@@ -3796,7 +4374,7 @@ pub fn slash_command_source_dir_by_id(
     slash_command_source_dir(app, &resource.slug)
 }
 
-fn ensure_slash_command_source(
+pub(crate) fn ensure_slash_command_source(
     app: &tauri::AppHandle,
     slug: &str,
     content: &str,
@@ -3838,7 +4416,7 @@ fn ensure_slash_command_source_with_directories(
     Ok(source_dir)
 }
 
-fn ensure_slash_command_source_for_command(
+pub(crate) fn ensure_slash_command_source_for_command(
     app: &tauri::AppHandle,
     command: &SlashCommandDto,
 ) -> Result<PathBuf, String> {
@@ -3897,14 +4475,14 @@ pub fn check_symlink_status(
     app: &tauri::AppHandle,
     input: &CheckSymlinkStatusInput,
 ) -> Result<CheckSymlinkStatusResult, String> {
-    // Get the skill
     let skill = get_legacy_skill(app, &input.skill_id)?
         .ok_or_else(|| format!("skill {} not found", input.skill_id))?;
 
     let slug = &skill.slug;
+    let custom_apps = load_custom_apps(app);
+    let is_project = input.scope == "project";
 
-    // Determine base path based on scope
-    let base_path = if input.scope == "project" {
+    let base_path = if is_project {
         let project_path = input
             .project_path
             .as_ref()
@@ -3914,12 +4492,60 @@ pub fn check_symlink_status(
         app.path().home_dir().map_err(|e| e.to_string())?
     };
 
-    // Check each app's installation status
-    let apps = ["claude", "codex", "cursor"];
+    let apps = all_configured_app_ids(&custom_apps);
+    let ssh_ledgers = if !is_project {
+        load_local_state(app)
+            .map(|s| s.ssh_ledgers)
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
     let mut statuses = Vec::new();
 
     for app_id in apps {
-        let install_paths = app_skill_paths(&base_path, app_id, slug)?;
+        if let Some(custom) = crate::ssh_sync::find_ssh_app(&app_id, &custom_apps) {
+            if is_project {
+                continue;
+            }
+            let exists = ssh_ledgers
+                .get(&app_id)
+                .map(|ledger| ledger.skills.contains(slug))
+                .unwrap_or(false);
+            let remote_target = exists.then(|| {
+                let host = custom
+                    .ssh
+                    .as_ref()
+                    .map(|s| s.host.as_str())
+                    .unwrap_or("ssh");
+                format!(
+                    "{}:{}/{}",
+                    host,
+                    custom.global_skill_dir.trim_end_matches('/'),
+                    slug
+                )
+            });
+            statuses.push(SkillSymlinkStatus {
+                app_id,
+                is_symlink: false,
+                is_broken: false,
+                target_path: remote_target,
+                exists,
+            });
+            continue;
+        }
+
+        let install_paths = if is_project {
+            match project_skill_paths(&base_path, &app_id, slug, &custom_apps) {
+                Ok(paths) => paths,
+                Err(_) => continue,
+            }
+        } else {
+            match global_skill_paths(&base_path, &app_id, slug, &custom_apps) {
+                Ok(paths) => paths,
+                Err(_) => continue,
+            }
+        };
+
         let mut has_symlink = false;
         let mut exists = false;
         let mut is_broken = false;
@@ -3948,7 +4574,7 @@ pub fn check_symlink_status(
         }
 
         statuses.push(SkillSymlinkStatus {
-            app_id: app_id.to_string(),
+            app_id,
             is_symlink: has_symlink,
             is_broken,
             target_path,
@@ -3962,19 +4588,181 @@ pub fn check_symlink_status(
     })
 }
 
+/// Return globally enabled app IDs for every managed skill in one pass
+pub fn list_all_skills_global_enabled_apps(
+    app: &tauri::AppHandle,
+) -> Result<HashMap<String, Vec<String>>, String> {
+    let skills = match list_legacy_skills(app) {
+        Ok(items) => items,
+        Err(_) => return Ok(HashMap::new()),
+    };
+    let home_dir = app.path().home_dir().map_err(|e| e.to_string())?;
+    let custom_apps = load_custom_apps(app);
+    let app_ids = all_configured_app_ids(&custom_apps);
+    let ssh_ledgers = load_local_state(app)
+        .map(|s| s.ssh_ledgers)
+        .unwrap_or_default();
+
+    let mut result = HashMap::with_capacity(skills.len());
+    for skill in skills {
+        let mut enabled = Vec::new();
+        for app_id in &app_ids {
+            if crate::ssh_sync::find_ssh_app(app_id, &custom_apps).is_some() {
+                if ssh_ledgers
+                    .get(app_id)
+                    .map(|ledger| ledger.skills.contains(&skill.slug))
+                    .unwrap_or(false)
+                {
+                    enabled.push(app_id.clone());
+                }
+                continue;
+            }
+            if let Ok(paths) = global_skill_paths(&home_dir, app_id, &skill.slug, &custom_apps) {
+                if paths.iter().any(|path| path.exists()) {
+                    enabled.push(app_id.clone());
+                }
+            }
+        }
+        result.insert(skill.id, enabled);
+    }
+
+    Ok(result)
+}
+
+/// Check the symlink status of a slash command installation
+pub fn check_slash_command_symlink_status(
+    app: &tauri::AppHandle,
+    input: &CheckSlashCommandSymlinkInput,
+) -> Result<CheckSlashCommandSymlinkResult, String> {
+    let command = get_slash_command(app, &input.command_id)?
+        .ok_or_else(|| format!("slash command {} not found", input.command_id))?;
+
+    let slug = &command.slug;
+    let custom_apps = load_custom_apps(app);
+    let is_project = input.scope == "project";
+
+    let base_path = if is_project {
+        let project_path = input
+            .project_path
+            .as_ref()
+            .ok_or("project_path is required for project scope")?;
+        normalize_user_path(project_path)?
+    } else {
+        app.path().home_dir().map_err(|e| e.to_string())?
+    };
+
+    let apps = all_configured_app_ids(&custom_apps);
+    let ssh_ledgers = if !is_project {
+        load_local_state(app)
+            .map(|s| s.ssh_ledgers)
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+    let mut statuses = Vec::new();
+
+    for app_id in apps {
+        if let Some(custom) = crate::ssh_sync::find_ssh_app(&app_id, &custom_apps) {
+            if is_project {
+                continue;
+            }
+            let Some(cmd_dir) = custom
+                .global_command_dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            let exists = ssh_ledgers
+                .get(&app_id)
+                .map(|ledger| ledger.commands.contains(slug))
+                .unwrap_or(false);
+            let remote_target = exists.then(|| {
+                let host = custom
+                    .ssh
+                    .as_ref()
+                    .map(|s| s.host.as_str())
+                    .unwrap_or("ssh");
+                format!("{}:{}/{}.md", host, cmd_dir.trim_end_matches('/'), slug)
+            });
+            statuses.push(SkillSymlinkStatus {
+                app_id,
+                is_symlink: false,
+                is_broken: false,
+                target_path: remote_target,
+                exists,
+            });
+            continue;
+        }
+
+        let install_paths = if is_project {
+            match project_command_paths(&base_path, &app_id, slug, &custom_apps) {
+                Ok(paths) if !paths.is_empty() => paths,
+                _ => continue,
+            }
+        } else {
+            match global_command_paths(&base_path, &app_id, slug, &custom_apps) {
+                Ok(paths) if !paths.is_empty() => paths,
+                _ => continue,
+            }
+        };
+
+        let mut has_symlink = false;
+        let mut exists = false;
+        let mut is_broken = false;
+        let mut target_path = None;
+
+        for install_path in install_paths {
+            let path_is_symlink = is_symlink(&install_path);
+            let path_exists = install_path.exists();
+
+            if path_is_symlink {
+                has_symlink = true;
+                if target_path.is_none() {
+                    target_path = install_path
+                        .read_link()
+                        .ok()
+                        .map(|p| p.to_string_lossy().to_string());
+                }
+            }
+
+            if path_exists {
+                exists = true;
+            }
+            if path_is_symlink && !path_exists {
+                is_broken = true;
+            }
+        }
+
+        statuses.push(SkillSymlinkStatus {
+            app_id,
+            is_symlink: has_symlink,
+            is_broken,
+            target_path,
+            exists,
+        });
+    }
+
+    Ok(CheckSlashCommandSymlinkResult {
+        command_id: input.command_id.clone(),
+        statuses,
+    })
+}
+
 /// Repair broken symlinks for a skill
 pub fn repair_broken_symlinks(
     app: &tauri::AppHandle,
     input: &CheckSymlinkStatusInput,
 ) -> Result<RepairBrokenSymlinksResult, String> {
-    // Get the skill
     let skill = get_legacy_skill(app, &input.skill_id)?
         .ok_or_else(|| format!("skill {} not found", input.skill_id))?;
 
     let slug = &skill.slug;
+    let custom_apps = load_custom_apps(app);
+    let is_project = input.scope == "project";
 
-    // Determine base path based on scope
-    let base_path = if input.scope == "project" {
+    let base_path = if is_project {
         let project_path = input
             .project_path
             .as_ref()
@@ -3987,10 +4775,17 @@ pub fn repair_broken_symlinks(
     let mut removed_symlinks = Vec::new();
     let mut errors = Vec::new();
 
-    let apps = ["claude", "codex", "cursor"];
+    for app_id in all_configured_app_ids(&custom_apps) {
+        if crate::ssh_sync::is_ssh_app(&app_id, &custom_apps) {
+            continue;
+        }
+        let paths = if is_project {
+            project_skill_paths(&base_path, &app_id, slug, &custom_apps).unwrap_or_default()
+        } else {
+            global_skill_paths(&base_path, &app_id, slug, &custom_apps).unwrap_or_default()
+        };
 
-    for app_id in apps {
-        for install_path in app_skill_paths(&base_path, app_id, slug)? {
+        for install_path in paths {
             if is_symlink(&install_path) && !install_path.exists() {
                 match remove_symlink(&install_path) {
                     Ok(()) => {
@@ -4014,9 +4809,53 @@ pub fn repair_broken_symlinks(
     })
 }
 
-/// Remove CLI folders from a project directory
-/// This removes the entire CLI config folders, including .codex for Codex.
+/// Non-destructively clean up SkillSwitch-managed symlinks inside a project's CLI folders.
+/// Preserves user configuration files (`config.toml`, `mcp.json`, `settings.json`, `rules/`, etc.)
+/// and removes `skills` / `commands` / CLI directories ONLY when they become completely empty.
+fn cleanup_managed_cli_dirs_in_project(
+    project_path: &Path,
+    app_id: &str,
+    custom_apps: &[CustomAppConfig],
+) -> Result<(), String> {
+    let mut subdirs_to_scan = Vec::new();
+    if let Ok(skill_dirs) = project_skill_dirs_for_app(project_path, app_id, custom_apps) {
+        subdirs_to_scan.extend(skill_dirs);
+    }
+    if let Ok(cmd_dirs) = project_command_dirs_for_app(project_path, app_id, custom_apps) {
+        subdirs_to_scan.extend(cmd_dirs);
+    }
+
+    for subdir in &subdirs_to_scan {
+        if !subdir.exists() {
+            continue;
+        }
+        if let Ok(entries) = fs::read_dir(subdir) {
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                if is_symlink(&entry_path) {
+                    remove_symlink(&entry_path)?;
+                }
+            }
+        }
+        // Remove subdir ONLY if it is now completely empty (`fs::remove_dir` refuses non-empty dirs)
+        let _ = fs::remove_dir(subdir);
+    }
+
+    if let Ok(cli_dirs) = app_cli_dirs(project_path, app_id) {
+        for cli_dir in cli_dirs {
+            if cli_dir.exists() {
+                let _ = fs::remove_dir(&cli_dir);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove SkillSwitch-managed CLI skill/command symlinks from a project directory
+/// without destroying host configuration files (`config.toml`, `mcp.json`, `settings.json`, `rules/`, etc.).
 pub fn remove_project_cli_folders(
+    app: &tauri::AppHandle,
     input: &RemoveProjectCliInput,
 ) -> Result<RemoveProjectCliResult, String> {
     let project_path = normalize_user_path(&input.project_path)?;
@@ -4027,37 +4866,14 @@ pub fn remove_project_cli_folders(
         ));
     }
 
+    let custom_apps = load_custom_apps(app);
     let mut removed_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let cli_dirs = match app_cli_dirs(&project_path, app_id) {
-            Ok(dirs) => dirs,
-            Err(_) => {
-                failed_apps.push(app_id.clone());
-                continue;
-            }
-        };
-
-        let mut failed = false;
-        for cli_dir in cli_dirs {
-            if !cli_dir.exists() {
-                continue;
-            }
-
-            match fs::remove_dir_all(&cli_dir) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("Failed to remove {:?}: {}", cli_dir, e);
-                    failed = true;
-                }
-            }
-        }
-
-        if failed {
-            failed_apps.push(app_id.clone());
-        } else {
-            removed_apps.push(app_id.clone());
+        match cleanup_managed_cli_dirs_in_project(&project_path, app_id, &custom_apps) {
+            Ok(()) => removed_apps.push(app_id.clone()),
+            Err(_) => failed_apps.push(app_id.clone()),
         }
     }
 
@@ -4078,7 +4894,6 @@ pub fn install_skill_global(
     app: &tauri::AppHandle,
     input: &InstallSkillGlobalInput,
 ) -> Result<InstallSkillGlobalResult, String> {
-    // Get the skill
     let skill = get_legacy_skill(app, &input.skill_id)?
         .ok_or_else(|| format!("skill {} not found", input.skill_id))?;
 
@@ -4086,12 +4901,26 @@ pub fn install_skill_global(
 
     let slug = &skill.slug;
     let source_dir = ensure_skill_source_for_skill(app, &skill)?;
+    let custom_apps = load_custom_apps(app);
 
     let mut installed_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = preferred_app_skill_path(&home_dir, app_id, slug)
+        if let Some(custom) = crate::ssh_sync::find_ssh_app(app_id, &custom_apps) {
+            match crate::ssh_sync::install_skill_ssh(app, custom, slug, &source_dir) {
+                Ok(()) => installed_apps.push(app_id.clone()),
+                Err(err) => {
+                    if input.apps.len() == 1 {
+                        return Err(err);
+                    }
+                    failed_apps.push(app_id.clone());
+                }
+            }
+            continue;
+        }
+
+        let result = preferred_global_skill_path(&home_dir, app_id, slug, &custom_apps)
             .and_then(|link_path| create_skill_symlink(&link_path, &source_dir));
 
         if result.is_ok() {
@@ -4107,25 +4936,36 @@ pub fn install_skill_global(
     })
 }
 
-/// Uninstall a skill globally for specified CLI apps
-/// Handles both symlinks and legacy copied directories
 pub fn uninstall_skill_global(
     app: &tauri::AppHandle,
     input: &InstallSkillGlobalInput,
 ) -> Result<InstallSkillGlobalResult, String> {
-    // Get the skill
     let skill = get_legacy_skill(app, &input.skill_id)?
         .ok_or_else(|| format!("skill {} not found", input.skill_id))?;
 
     let home_dir = app.path().home_dir().map_err(|error| error.to_string())?;
 
     let slug = &skill.slug;
+    let custom_apps = load_custom_apps(app);
 
     let mut uninstalled_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = app_skill_paths(&home_dir, app_id, slug).and_then(|paths| {
+        if let Some(custom) = crate::ssh_sync::find_ssh_app(app_id, &custom_apps) {
+            match crate::ssh_sync::uninstall_skill_ssh(app, custom, slug) {
+                Ok(()) => uninstalled_apps.push(app_id.clone()),
+                Err(err) => {
+                    if input.apps.len() == 1 {
+                        return Err(err);
+                    }
+                    failed_apps.push(app_id.clone());
+                }
+            }
+            continue;
+        }
+
+        let result = global_skill_paths(&home_dir, app_id, slug, &custom_apps).and_then(|paths| {
             for path in paths {
                 remove_symlink(&path)?;
             }
@@ -4154,12 +4994,27 @@ pub fn install_slash_command_global(
 
     let home_dir = app.path().home_dir().map_err(|error| error.to_string())?;
     let source_dir = ensure_slash_command_source_for_command(app, &command)?;
+    let cmd_md_path = source_dir.join("COMMAND.md");
+    let custom_apps = load_custom_apps(app);
 
     let mut installed_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = preferred_app_command_path(&home_dir, app_id, &command.slug)
+        if let Some(custom) = crate::ssh_sync::find_ssh_app(app_id, &custom_apps) {
+            match crate::ssh_sync::install_command_ssh(app, custom, &command.slug, &cmd_md_path) {
+                Ok(()) => installed_apps.push(app_id.clone()),
+                Err(err) => {
+                    if input.apps.len() == 1 {
+                        return Err(err);
+                    }
+                    failed_apps.push(app_id.clone());
+                }
+            }
+            continue;
+        }
+
+        let result = preferred_global_command_path(&home_dir, app_id, &command.slug, &custom_apps)
             .and_then(|link_path| create_skill_symlink(&link_path, &source_dir));
 
         if result.is_ok() {
@@ -4183,17 +5038,33 @@ pub fn uninstall_slash_command_global(
         .ok_or_else(|| format!("slash command {} not found", input.command_id))?;
 
     let home_dir = app.path().home_dir().map_err(|error| error.to_string())?;
+    let custom_apps = load_custom_apps(app);
 
     let mut uninstalled_apps = Vec::new();
     let mut failed_apps = Vec::new();
 
     for app_id in &input.apps {
-        let result = app_command_paths(&home_dir, app_id, &command.slug).and_then(|paths| {
-            for path in paths {
-                remove_symlink(&path)?;
+        if let Some(custom) = crate::ssh_sync::find_ssh_app(app_id, &custom_apps) {
+            match crate::ssh_sync::uninstall_command_ssh(app, custom, &command.slug) {
+                Ok(()) => uninstalled_apps.push(app_id.clone()),
+                Err(err) => {
+                    if input.apps.len() == 1 {
+                        return Err(err);
+                    }
+                    failed_apps.push(app_id.clone());
+                }
             }
-            Ok(())
-        });
+            continue;
+        }
+
+        let result = global_command_paths(&home_dir, app_id, &command.slug, &custom_apps).and_then(
+            |paths| {
+                for path in paths {
+                    remove_symlink(&path)?;
+                }
+                Ok(())
+            },
+        );
 
         if result.is_ok() {
             uninstalled_apps.push(app_id.clone());
@@ -4919,56 +5790,81 @@ pub fn import_skill_from_repo_source(
     })
 }
 
-/// Parse skill metadata (name, description) from SKILL.md content
-/// Looks for the first heading as the name, and the first paragraph as description
-fn parse_skill_metadata(content: &str) -> (String, Option<String>) {
-    let mut name = String::new();
-    let mut description: Option<String> = None;
+/// Parse skill metadata (name, description) from SKILL.md content.
+/// Prefers YAML frontmatter (`name` + `description`), falling back to the first Markdown `#` heading
+/// and first paragraph when frontmatter fields are absent.
+pub(crate) fn parse_skill_metadata(content: &str) -> (String, Option<String>) {
+    let normalized = content.replace("\r\n", "\n");
+    let (front_name, front_desc, _) = parse_skill_front_matter(&normalized);
 
-    let lines: Vec<&str> = content.lines().collect();
-    let mut found_name = false;
+    let body = if let Some(rest) = normalized.strip_prefix("---\n") {
+        if let Some((_, after)) = rest.split_once("\n---\n") {
+            after
+        } else if rest.ends_with("\n---") {
+            ""
+        } else {
+            normalized.as_str()
+        }
+    } else {
+        normalized.as_str()
+    };
+
+    let mut heading_name = String::new();
+    let mut body_description: Option<String> = None;
+
+    let lines: Vec<&str> = body.lines().collect();
+    let mut found_heading = false;
     let mut desc_lines: Vec<String> = Vec::new();
 
     for line in lines {
         let trimmed = line.trim();
 
-        // Skip empty lines at the beginning
-        if !found_name && trimmed.is_empty() {
+        if !found_heading && trimmed.is_empty() {
             continue;
         }
 
-        // First heading becomes the name
-        if !found_name && trimmed.starts_with('#') {
-            name = trimmed.trim_start_matches('#').trim().to_string();
-            found_name = true;
+        if !found_heading && trimmed.starts_with('#') {
+            heading_name = trimmed.trim_start_matches('#').trim().to_string();
+            found_heading = true;
             continue;
         }
 
-        // After finding name, collect description until we hit another heading or code block
-        if found_name {
+        if found_heading {
             if trimmed.starts_with('#') || trimmed.starts_with("```") {
                 break;
             }
             if !trimmed.is_empty() {
                 desc_lines.push(trimmed.to_string());
             } else if !desc_lines.is_empty() {
-                // Stop at first empty line after description
+                break;
+            }
+        } else if front_name.is_some() && front_desc.is_none() {
+            // Frontmatter provided `name` without `description`, and body has no `#` heading:
+            // capture first paragraph of body as description
+            if trimmed.starts_with("```") {
+                break;
+            }
+            if !trimmed.is_empty() {
+                desc_lines.push(trimmed.to_string());
+            } else if !desc_lines.is_empty() {
                 break;
             }
         }
     }
 
     if !desc_lines.is_empty() {
-        description = Some(desc_lines.join(" "));
-        // Truncate description if too long (using character count, not bytes)
-        if let Some(ref desc) = description {
-            if desc.chars().count() > 200 {
-                description = Some(format!("{}...", desc.chars().take(197).collect::<String>()));
-            }
+        body_description = Some(desc_lines.join(" "));
+    }
+
+    let final_name = front_name.filter(|s| !s.is_empty()).unwrap_or(heading_name);
+    let mut final_desc = front_desc.or(body_description);
+    if let Some(ref desc) = final_desc {
+        if desc.chars().count() > 200 {
+            final_desc = Some(format!("{}...", desc.chars().take(197).collect::<String>()));
         }
     }
 
-    (name, description)
+    (final_name, final_desc)
 }
 
 /// Export a skill to a ZIP file
@@ -5356,8 +6252,12 @@ pub fn scan_external_app_skills(
 
     // Get the home directory
     let home_dir = dirs::home_dir().ok_or_else(|| "无法获取用户主目录".to_string())?;
+    let custom_apps = load_custom_apps(app);
+    if crate::ssh_sync::is_ssh_app(app_id, &custom_apps) {
+        return Ok(Vec::new());
+    }
 
-    let skills_dirs = app_skill_dirs(&home_dir, app_id)?;
+    let skills_dirs = global_skill_dirs_for_app(&home_dir, app_id, &custom_apps)?;
 
     // Get the SkillSwitch skill-sources directory to check symlinks
     let skill_sources = skill_sources_dir(app)?;
@@ -5435,7 +6335,7 @@ pub fn scan_external_app_skills(
     }
 
     // Sort by name
-    skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    skills.sort_by_key(|a| a.name.to_lowercase());
 
     Ok(skills)
 }
@@ -5453,13 +6353,17 @@ pub fn read_external_skill_content(path: &str) -> Result<String, String> {
 }
 
 pub fn scan_external_app_slash_commands(
-    _app: &tauri::AppHandle,
+    app: &tauri::AppHandle,
     app_id: &str,
 ) -> Result<Vec<crate::domain::ExternalSlashCommandDto>, String> {
     use crate::domain::ExternalSlashCommandDto;
 
     let home_dir = dirs::home_dir().ok_or_else(|| "无法获取用户主目录".to_string())?;
-    let command_dirs = app_command_dirs(&home_dir, app_id)?;
+    let custom_apps = load_custom_apps(app);
+    if crate::ssh_sync::is_ssh_app(app_id, &custom_apps) {
+        return Ok(Vec::new());
+    }
+    let command_dirs = global_command_dirs_for_app(&home_dir, app_id, &custom_apps)?;
 
     let mut commands: Vec<ExternalSlashCommandDto> = Vec::new();
     let mut seen_slugs = HashSet::new();
@@ -5576,15 +6480,18 @@ pub fn scan_external_app_slash_commands(
         }
     }
 
-    commands.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    commands.sort_by_key(|a| a.name.to_lowercase());
 
     Ok(commands)
 }
 
 pub fn read_external_slash_command_content(path: &str) -> Result<String, String> {
     let command_path = PathBuf::from(path);
-    let command_file = command_path.join("COMMAND.md");
+    if command_path.is_file() {
+        return fs::read_to_string(&command_path).map_err(|e| format!("读取命令文件失败：{}", e));
+    }
 
+    let command_file = command_path.join("COMMAND.md");
     if !command_file.exists() {
         return Err("COMMAND.md 文件不存在".to_string());
     }
@@ -5765,5 +6672,146 @@ mod tests {
         assert!(resource.content.contains("Pulled from backup"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_frontmatter_only_multiline_skill_and_crlf() {
+        let raw = "---\r\nname: browser-debugger\r\ndescription: >-\r\n  Automates headless checks\r\n  across web previews.\r\ntags:\r\n  - browser\r\n  - debug\r\n---\r\nStep 1: Open the page.\r\n";
+        let (name, desc, tags) = parse_skill_front_matter(raw);
+        assert_eq!(name.as_deref(), Some("browser-debugger"));
+        assert_eq!(
+            desc.as_deref(),
+            Some("Automates headless checks across web previews.")
+        );
+        assert_eq!(tags, vec!["browser".to_string(), "debug".to_string()]);
+
+        let (meta_name, meta_desc) = parse_skill_metadata(raw);
+        assert_eq!(meta_name, "browser-debugger");
+        assert_eq!(
+            meta_desc.as_deref(),
+            Some("Automates headless checks across web previews.")
+        );
+    }
+
+    #[test]
+    fn reconcile_ignores_plugin_and_command_sources_dirs() {
+        let root = make_temp_path("reconcile-ignores-containers");
+        fs::create_dir_all(root.join("plugin-sources").join("SKILL.md-fake")).unwrap();
+        fs::write(
+            root.join("plugin-sources").join("SKILL.md"),
+            "# Not a top-level skill",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("command-sources")).unwrap();
+        fs::write(
+            root.join("command-sources").join("SKILL.md"),
+            "# Not a skill",
+        )
+        .unwrap();
+
+        let library = RepoLibrary {
+            version: "2".into(),
+            ..Default::default()
+        };
+        save_repo_library(&root, &library).unwrap();
+
+        let changed = reconcile_managed_skills_from_backup_clone(&root).unwrap();
+        assert!(!changed);
+        let reloaded = load_repo_library(&root).unwrap();
+        assert!(reloaded.resources.is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_managed_cli_dirs_preserves_host_configs_and_user_files() {
+        let project = make_temp_path("safe-cli-cleanup");
+        let skill_src = project.join("_canonical_skill");
+        fs::create_dir_all(&skill_src).unwrap();
+        fs::write(skill_src.join("SKILL.md"), "# Demo").unwrap();
+
+        let codex_dir = project.join(".codex");
+        fs::create_dir_all(codex_dir.join("skills")).unwrap();
+        fs::write(
+            codex_dir.join("config.toml"),
+            "# user config\n[mcp_servers.demo]\ncommand = \"npx\"\n",
+        )
+        .unwrap();
+        create_skill_symlink(&codex_dir.join("skills").join("demo"), &skill_src).unwrap();
+
+        cleanup_managed_cli_dirs_in_project(&project, "codex", &[]).unwrap();
+
+        assert!(
+            !codex_dir.join("skills").join("demo").exists(),
+            "managed symlink should be removed"
+        );
+        assert!(
+            codex_dir.join("config.toml").exists(),
+            "host config.toml must NEVER be deleted"
+        );
+
+        let _ = fs::remove_dir_all(project);
+    }
+    #[test]
+    fn normalize_custom_apps_sanitizes_ssh_and_prevents_local_tilde_expansion() {
+        let valid_ssh = CustomAppConfig {
+            id: "  cage-claude  ".to_string(),
+            label: "  Cage Claude  ".to_string(),
+            accent_color: "".to_string(),
+            global_skill_dir: "  ~/.claude/skills  ".to_string(),
+            project_skill_dir: Some(".claude/skills".to_string()),
+            global_command_dir: Some(" ~/.claude/commands ".to_string()),
+            project_command_dir: Some(".claude/commands".to_string()),
+            global_mcp_config_path: Some(" ~/.claude.json ".to_string()),
+            project_mcp_config_path: Some(".mcp.json".to_string()),
+            mcp_format: Some(" json ".to_string()),
+            mcp_root_key: Some(" mcpServers ".to_string()),
+            ssh: Some(crate::domain::SshTargetConfig {
+                host: "  lima-claude-cage  ".to_string(),
+                user: Some("  cage  ".to_string()),
+                port: Some(0),
+                identity_file: Some("  ~/.ssh/id_ed25519  ".to_string()),
+                remote_app_preset: Some(" claude ".to_string()),
+                global_plugin_dir: Some(" ~/.claude/plugins/local ".to_string()),
+                inject_secrets: true,
+            }),
+        };
+        let empty_host_ssh = CustomAppConfig {
+            id: "broken-ssh".to_string(),
+            label: "Broken".to_string(),
+            accent_color: "#000000".to_string(),
+            global_skill_dir: "~/.claude/skills".to_string(),
+            ssh: Some(crate::domain::SshTargetConfig {
+                host: "   ".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let normalized = normalize_custom_apps(&[valid_ssh, empty_host_ssh]);
+        assert_eq!(normalized.len(), 1);
+        let app = &normalized[0];
+        assert_eq!(app.id, "cage-claude");
+        assert_eq!(app.project_skill_dir, None);
+        assert_eq!(app.project_command_dir, None);
+        assert_eq!(app.project_mcp_config_path, None);
+        let ssh = app.ssh.as_ref().expect("ssh config preserved");
+        assert_eq!(ssh.host, "lima-claude-cage");
+        assert_eq!(ssh.user.as_deref(), Some("cage"));
+        assert_eq!(ssh.port, None);
+        assert!(ssh.inject_secrets);
+
+        let local_home = Path::new("/Users/local-mac");
+        assert!(
+            global_skill_dirs_for_app(local_home, "cage-claude", &normalized)
+                .unwrap()
+                .is_empty(),
+            "SSH app must NEVER expand remote ~ against local Mac $HOME"
+        );
+        assert!(
+            global_command_dirs_for_app(local_home, "cage-claude", &normalized)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

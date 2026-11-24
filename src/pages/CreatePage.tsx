@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PageId } from "../App";
 import type { StandardSkillDirectory } from "../types";
-import { AlertTriangle, Check, File, Folder, Info, Loader2, Sparkles, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  File,
+  Folder,
+  Info,
+  Loader2,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { useSkills } from "../context/SkillContext";
 import { useSettings } from "../context/SettingsContext";
 import { useToast } from "../components/ui/Toast";
 import { formatSkillOperationError } from "../services/skill";
 import s from "./CreatePage.module.css";
 
-const SKILL_HINT = "SKILL.md 是 Skill 的入口，Claude 每次调用时都会读取它";
+const SKILL_HINT =
+  "SKILL.md 是通用 Skill 入口，Claude、T3、反重力等各客户端均兼容读取";
 
 function defaultSkillContent(name: string): string {
   return `---
@@ -70,8 +80,8 @@ function slugifyName(value: string): string {
     const mapped = /[a-z0-9]/.test(char)
       ? char
       : /[A-Z]/.test(char)
-      ? char.toLowerCase()
-      : "-";
+        ? char.toLowerCase()
+        : "-";
 
     if (mapped === "-") {
       if (slug && !prevDash) {
@@ -93,7 +103,7 @@ interface Props {
 }
 
 export function CreatePage({ onNavigate, editSkillId }: Props) {
-  const { skills, create, update } = useSkills();
+  const { skills, create, update, autoEnableDefaultApps } = useSkills();
   const { settings } = useSettings();
   const toast = useToast();
   const [name, setName] = useState("");
@@ -112,7 +122,10 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
     [editSkillId, generatedSlug, name]
   );
   const duplicateSkill = useMemo(
-    () => !editSkillId && !!generatedSlug && skills.some((skill) => skill.slug === generatedSlug),
+    () =>
+      !editSkillId &&
+      !!generatedSlug &&
+      skills.some((skill) => skill.slug === generatedSlug),
     [editSkillId, generatedSlug, skills]
   );
   const backupSyncEnabled = !editSkillId && !!settings.backupSource;
@@ -146,9 +159,9 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
     }));
   };
 
-  const createDirectories = STANDARD_DIRECTORIES
-    .filter((directory) => selectedDirectories[directory.key])
-    .map((directory) => directory.key);
+  const createDirectories = STANDARD_DIRECTORIES.filter(
+    (directory) => selectedDirectories[directory.key]
+  ).map((directory) => directory.key);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -198,6 +211,7 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
         projectIds: [],
       });
       if (result.ok) {
+        await autoEnableDefaultApps(result.value.skill.id);
         const syncResult = result.value.backupSync;
         if (syncResult.status === "success") {
           toast.success(`「${result.value.skill.name}」已创建，并已同步到远端`);
@@ -220,29 +234,49 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
   };
   const previewEntries = editSkillId
     ? ["SKILL.md"]
-    : ["SKILL.md", ...STANDARD_DIRECTORIES
-      .filter((directory) => selectedDirectories[directory.key])
-      .map((directory) => directory.label)];
+    : [
+        "SKILL.md",
+        ...STANDARD_DIRECTORIES.filter(
+          (directory) => selectedDirectories[directory.key]
+        ).map((directory) => directory.label),
+      ];
 
   return (
     <div className={s.page}>
       <header className={s.header}>
-        <h1 className={s.title}>{editSkillId ? "编辑 Skill" : "创建新 Skill"}</h1>
+        <h1 className={s.title}>
+          {editSkillId ? "编辑 Skill" : "创建新 Skill"}
+        </h1>
         <div className={s.headerActions}>
-          <button className={s.cancelBtn} onClick={() => onNavigate("my-library")}>
+          <button
+            className={s.cancelBtn}
+            onClick={() => onNavigate("my-library")}
+          >
             <X size={14} /> 取消
           </button>
           <button className={s.saveBtn} onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 size={14} className={s.spin} /> : <Check size={14} />}
-            {saving ? (!editSkillId && backupSyncEnabled ? "保存并同步中..." : "保存中...") : "保存"}
+            {saving ? (
+              <Loader2 size={14} className={s.spin} />
+            ) : (
+              <Check size={14} />
+            )}
+            {saving
+              ? !editSkillId && backupSyncEnabled
+                ? "保存并同步中..."
+                : "保存中..."
+              : "保存"}
           </button>
         </div>
       </header>
 
       {error && (
         <div className={s.errorBanner}>
-          <span><AlertTriangle size={14} /> {error}</span>
-          <button onClick={() => setError(null)}><X size={14} /></button>
+          <span>
+            <AlertTriangle size={14} /> {error}
+          </span>
+          <button onClick={() => setError(null)}>
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -269,11 +303,16 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
             />
             {nameError || duplicateSkill || invalidSlug ? (
               <div className={s.fieldError}>
-                <AlertTriangle size={12} /> {nameError || (invalidSlug ? "名称无效，请至少包含一个字母或数字" : `名称已存在，请修改后重试（slug: ${generatedSlug}）`)}
+                <AlertTriangle size={12} />{" "}
+                {nameError ||
+                  (invalidSlug
+                    ? "名称无效，请至少包含一个字母或数字"
+                    : `名称已存在，请修改后重试（slug: ${generatedSlug}）`)}
               </div>
             ) : (
               <div className={s.hint}>
-                只能用小写字母、数字和连字符{generatedSlug ? ` · 将生成 slug: ${generatedSlug}` : ""}
+                只能用小写字母、数字和连字符
+                {generatedSlug ? ` · 将生成 slug: ${generatedSlug}` : ""}
               </div>
             )}
           </div>
@@ -321,7 +360,10 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
                     />
                     <span>{directory.icon}</span>
                     <span className={s.directoryMeta}>
-                      <span className={s.directoryLabel} style={{ color: directory.color }}>
+                      <span
+                        className={s.directoryLabel}
+                        style={{ color: directory.color }}
+                      >
                         {directory.label}
                       </span>
                       <span className={s.directoryHint}>{directory.hint}</span>
@@ -329,21 +371,33 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
                   </label>
                 ))}
               </div>
-              <div className={s.hint}>勾选后会创建空目录，保存后前往「我的库」点击「在 Finder 中显示」添加脚本或资源文件。</div>
+              <div className={s.hint}>
+                勾选后会创建空目录，保存后前往「我的库」点击「在 Finder
+                中显示」添加脚本或资源文件。
+              </div>
             </div>
           )}
           <div className={s.field}>
             <label className={s.label}>目录结构预览</label>
             <div className={s.dirPreview}>
-              <div className={s.dirRoot}><Folder size={14} /> {name || "my-skill"}/</div>
+              <div className={s.dirRoot}>
+                <Folder size={14} /> {name || "my-skill"}/
+              </div>
               {previewEntries.map((entry) => (
                 <div key={entry} className={s.dirFile}>
-                  {entry.endsWith("/") ? <Folder size={12} /> : <File size={12} />} {entry}
+                  {entry.endsWith("/") ? (
+                    <Folder size={12} />
+                  ) : (
+                    <File size={12} />
+                  )}{" "}
+                  {entry}
                 </div>
               ))}
             </div>
             {editSkillId && (
-              <div className={s.hint}>仅展示当前可编辑入口文件，现有附加目录不会被删除。</div>
+              <div className={s.hint}>
+                仅展示当前可编辑入口文件，现有附加目录不会被删除。
+              </div>
             )}
           </div>
           {!editSkillId && backupSyncEnabled && (
@@ -351,7 +405,10 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
               <label className={s.label}>远端同步</label>
               <div className={s.syncNotice}>
                 <Info size={14} />
-                <span>创建成功后会立即同步到备份源；如果网络异常，系统会自动重试最多 3 次。</span>
+                <span>
+                  创建成功后会立即同步到备份源；如果网络异常，系统会自动重试最多
+                  3 次。
+                </span>
               </div>
             </div>
           )}
@@ -374,7 +431,9 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
             spellCheck={false}
           />
 
-          <div className={s.hintBar}><Info size={12} /> {SKILL_HINT}</div>
+          <div className={s.hintBar}>
+            <Info size={12} /> {SKILL_HINT}
+          </div>
         </div>
       </div>
     </div>

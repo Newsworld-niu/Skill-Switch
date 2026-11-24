@@ -15,17 +15,25 @@ import {
   skillDelete,
   scanExternalSkills,
   skillSyncFromSource,
+  skillListGlobalEnabledApps,
+  skillInstallGlobal,
+  skillUninstallGlobal,
 } from "../services/skill";
 import type { CreateSkillInput, UpdateSkillInput } from "../types";
-import { APP_LIST } from "./AppContext";
+import { useApps } from "./AppContext";
+import { useToast } from "../components/ui/Toast";
 import type { Result } from "../services/tauri";
 
 interface SkillContextValue {
   skills: Skill[];
   externalSkills: ExternalSkill[];
+  globalEnabledBySkill: Record<string, string[]>;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  refreshGlobalStatuses: () => Promise<void>;
+  toggleSkillGlobalApp: (skillId: string, appId: string) => Promise<boolean>;
+  autoEnableDefaultApps: (skillId: string) => Promise<string[]>;
   search: (query: string) => Promise<void>;
   create: (input: CreateSkillInput) => Promise<Result<CreateSkillResult>>;
   update: (input: UpdateSkillInput) => Promise<Result<Skill>>;
@@ -36,19 +44,32 @@ interface SkillContextValue {
 const SkillContext = createContext<SkillContextValue | null>(null);
 
 export function SkillProvider({ children }: { children: ReactNode }) {
+  const { allApps, defaultInstallAppIds, getAppMeta } = useApps();
+  const toast = useToast();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [externalSkills, setExternalSkills] = useState<ExternalSkill[]>([]);
+  const [globalEnabledBySkill, setGlobalEnabledBySkill] = useState<
+    Record<string, string[]>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load skills on mount
+  const refreshGlobalStatuses = useCallback(async () => {
+    const statusResult = await skillListGlobalEnabledApps();
+    if (statusResult.ok) {
+      setGlobalEnabledBySkill(statusResult.value);
+    }
+  }, []);
+
+  // Load skills on mount and when configured apps change
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const [managedResult, externalResults] = await Promise.all([
+    const [managedResult, statusResult, externalResults] = await Promise.all([
       skillList(),
-      Promise.allSettled(APP_LIST.map((app) => scanExternalSkills(app.id))),
+      skillListGlobalEnabledApps(),
+      Promise.allSettled(allApps.map((app) => scanExternalSkills(app.id))),
     ]);
 
     if (managedResult.ok) {
@@ -57,8 +78,12 @@ export function SkillProvider({ children }: { children: ReactNode }) {
       setError(managedResult.error);
     }
 
+    if (statusResult.ok) {
+      setGlobalEnabledBySkill(statusResult.value);
+    }
+
     const unmanagedExternal = externalResults.flatMap((result, index) => {
-      const appId = APP_LIST[index]?.id;
+      const appId = allApps[index]?.id;
       if (!appId || result.status !== "fulfilled" || !result.value.ok) {
         return [];
       }
@@ -68,17 +93,90 @@ export function SkillProvider({ children }: { children: ReactNode }) {
     setExternalSkills(unmanagedExternal);
 
     setLoading(false);
-  }, []);
+  }, [allApps]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
+
+  const toggleSkillGlobalApp = useCallback(
+    async (skillId: string, appId: string): Promise<boolean> => {
+      const currentList = globalEnabledBySkill[skillId] ?? [];
+      const isEnabled = currentList.includes(appId);
+      const nextEnabled = !isEnabled;
+
+      setGlobalEnabledBySkill((prev) => {
+        const list = prev[skillId] ?? [];
+        const updated = nextEnabled
+          ? Array.from(new Set([...list, appId]))
+          : list.filter((id) => id !== appId);
+        return { ...prev, [skillId]: updated };
+      });
+
+      const appLabel = getAppMeta(appId)?.label ?? appId;
+      const tid = toast.loading(
+        nextEnabled ? `正在启用全局 ${appLabel}…` : `正在关闭全局 ${appLabel}…`
+      );
+
+      const result = nextEnabled
+        ? await skillInstallGlobal({ skillId, apps: [appId] })
+        : await skillUninstallGlobal({ skillId, apps: [appId] });
+
+      const succeeded = result.ok && result.value.installedApps.includes(appId);
+
+      if (succeeded) {
+        toast.resolve(
+          tid,
+          "success",
+          nextEnabled
+            ? `已在全局 ${appLabel} 启用`
+            : `已从全局 ${appLabel} 移除`
+        );
+        return true;
+      }
+
+      const errMsg = !result.ok ? result.error : `操作 ${appLabel} 失败`;
+      toast.resolve(tid, "error", errMsg);
+      setGlobalEnabledBySkill((prev) => ({
+        ...prev,
+        [skillId]: currentList,
+      }));
+      return false;
+    },
+    [getAppMeta, globalEnabledBySkill, toast]
+  );
+
+  const autoEnableDefaultApps = useCallback(
+    async (skillId: string): Promise<string[]> => {
+      if (defaultInstallAppIds.length === 0) {
+        return [];
+      }
+      const installResult = await skillInstallGlobal({
+        skillId,
+        apps: defaultInstallAppIds,
+      });
+      if (!installResult.ok) {
+        return [];
+      }
+      const installed = installResult.value.installedApps;
+      if (installed.length > 0) {
+        setGlobalEnabledBySkill((prev) => ({
+          ...prev,
+          [skillId]: Array.from(
+            new Set([...(prev[skillId] ?? []), ...installed])
+          ),
+        }));
+      }
+      return installed;
+    },
+    [defaultInstallAppIds]
+  );
 
   // Search skills
   const search = useCallback(
     async (query: string) => {
       if (!query.trim()) {
-        refresh();
+        await refresh();
         return;
       }
       setLoading(true);
@@ -100,6 +198,10 @@ export function SkillProvider({ children }: { children: ReactNode }) {
       const result = await skillCreate(input);
       if (result.ok) {
         setSkills((prev) => [...prev, result.value.skill]);
+        setGlobalEnabledBySkill((prev) => ({
+          ...prev,
+          [result.value.skill.id]: prev[result.value.skill.id] ?? [],
+        }));
         return result;
       }
       setError(result.error);
@@ -140,6 +242,11 @@ export function SkillProvider({ children }: { children: ReactNode }) {
     const result = await skillDelete(id);
     if (result.ok) {
       setSkills((prev) => prev.filter((s) => s.id !== id));
+      setGlobalEnabledBySkill((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       return true;
     }
     setError(result.error);
@@ -151,9 +258,13 @@ export function SkillProvider({ children }: { children: ReactNode }) {
       value={{
         skills,
         externalSkills,
+        globalEnabledBySkill,
         loading,
         error,
         refresh,
+        refreshGlobalStatuses,
+        toggleSkillGlobalApp,
+        autoEnableDefaultApps,
         search,
         create,
         update,

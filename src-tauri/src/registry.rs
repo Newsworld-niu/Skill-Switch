@@ -282,7 +282,10 @@ fn get_app_skills_dir(home: &Path, app: &str) -> std::path::PathBuf {
         "claude" => home.join(".claude").join("skills"),
         "codex" => home.join(".codex").join("skills"),
         "cursor" => home.join(".cursor").join("skills"),
-        "windsurf" => home.join(".windsurf").join("skills"),
+        "antigravity" => home.join(".gemini").join("config").join("skills"),
+        "gemini" => home.join(".gemini").join("skills"),
+        "t3" => home.join(".agents").join("skills"),
+        "windsurf" => home.join(".codeium").join("windsurf").join("skills"),
         "aider" => home.join(".aider").join("skills"),
         _ => home.join(format!(".{}", app)).join("skills"),
     }

@@ -22,7 +22,7 @@ import {
   slashCommandSyncFromSource,
   slashCommandUpdate,
 } from "../services/slashCommand";
-import { APP_LIST } from "./AppContext";
+import { useApps } from "./AppContext";
 import type { Result } from "../services/tauri";
 
 interface SlashCommandContextValue {
@@ -45,6 +45,7 @@ const SlashCommandContext = createContext<SlashCommandContextValue | null>(
 );
 
 export function SlashCommandProvider({ children }: { children: ReactNode }) {
+  const { allApps } = useApps();
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [externalCommands, setExternalCommands] = useState<
     ExternalSlashCommand[]
@@ -56,10 +57,12 @@ export function SlashCommandProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
 
+    const commandApps = allApps.filter((app) => Boolean(app.commandPathLabel));
+
     const [managedResult, externalResults] = await Promise.all([
       slashCommandList(),
       Promise.allSettled(
-        APP_LIST.map((app) => scanExternalSlashCommands(app.id))
+        commandApps.map((app) => scanExternalSlashCommands(app.id))
       ),
     ]);
 
@@ -70,7 +73,7 @@ export function SlashCommandProvider({ children }: { children: ReactNode }) {
     }
 
     const unmanagedExternal = externalResults.flatMap((result, index) => {
-      const appId = APP_LIST[index]?.id;
+      const appId = commandApps[index]?.id;
       if (!appId || result.status !== "fulfilled" || !result.value.ok) {
         return [];
       }
@@ -80,16 +83,16 @@ export function SlashCommandProvider({ children }: { children: ReactNode }) {
     setExternalCommands(unmanagedExternal);
 
     setLoading(false);
-  }, []);
+  }, [allApps]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
   const search = useCallback(
     async (query: string) => {
       if (!query.trim()) {
-        refresh();
+        await refresh();
         return;
       }
 
@@ -184,7 +187,9 @@ export function SlashCommandProvider({ children }: { children: ReactNode }) {
 export function useSlashCommands() {
   const context = useContext(SlashCommandContext);
   if (!context) {
-    throw new Error("useSlashCommands must be used within SlashCommandProvider");
+    throw new Error(
+      "useSlashCommands must be used within SlashCommandProvider"
+    );
   }
   return context;
 }

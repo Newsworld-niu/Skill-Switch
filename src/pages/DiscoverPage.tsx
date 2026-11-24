@@ -1,9 +1,17 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
-  Search, Check, Download, RefreshCw, Globe,
-  Loader, AlertTriangle, BookMarked, Database,
+  Search,
+  Check,
+  Download,
+  RefreshCw,
+  Globe,
+  Loader,
+  AlertTriangle,
+  BookMarked,
+  Database,
 } from "lucide-react";
 import { useSkills } from "../context/SkillContext";
+import { useApps } from "../context/AppContext";
 import { useSource } from "../context/SourceContext";
 import { useSettings } from "../context/SettingsContext";
 import { BACKUP_SOURCE_REPO_ID } from "../services/backupSource";
@@ -13,20 +21,28 @@ import { formatSkillOperationError } from "../services/skill";
 import {
   REGISTRY_SOURCE_ID,
   registryFetchContent,
-  registryInstall,
   type RegistrySkillDisplay,
 } from "../services/registry";
 import type { Resource, RemoteSkill } from "../types";
 import s from "./DiscoverPage.module.css";
 
-const CATEGORIES = ["全部", "Git & CI/CD", "调试", "安全", "数据库", "AI / LLM", "已安装", "未安装"];
+const CATEGORIES = [
+  "全部",
+  "Git & CI/CD",
+  "调试",
+  "安全",
+  "数据库",
+  "AI / LLM",
+  "已安装",
+  "未安装",
+];
 
 function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
     "Git & CI/CD": "rgba(99, 102, 241, 0.10)",
-    "调试": "rgba(249, 115, 22, 0.10)",
-    "安全": "rgba(239, 68, 68, 0.10)",
-    "数据库": "rgba(34, 197, 94, 0.10)",
+    调试: "rgba(249, 115, 22, 0.10)",
+    安全: "rgba(239, 68, 68, 0.10)",
+    数据库: "rgba(34, 197, 94, 0.10)",
     "AI / LLM": "rgba(139, 92, 246, 0.10)",
   };
   return colors[category] || "rgba(99, 102, 241, 0.10)";
@@ -35,9 +51,9 @@ function getCategoryColor(category: string): string {
 function getCategoryTextColor(category: string): string {
   const colors: Record<string, string> = {
     "Git & CI/CD": "#6366f1",
-    "调试": "#f97316",
-    "安全": "#ef4444",
-    "数据库": "#22c55e",
+    调试: "#f97316",
+    安全: "#ef4444",
+    数据库: "#22c55e",
     "AI / LLM": "#8b5cf6",
   };
   return colors[category] || "#6366f1";
@@ -58,16 +74,19 @@ function getIconColors(name: string): { bg: string; fg: string } {
 }
 
 function inferCategory(tags: string[]): string {
-  if (tags.some(t => t === "git" || t === "ci")) return "Git & CI/CD";
-  if (tags.some(t => t === "debug" || t === "debugging")) return "调试";
+  if (tags.some((t) => t === "git" || t === "ci")) return "Git & CI/CD";
+  if (tags.some((t) => t === "debug" || t === "debugging")) return "调试";
   if (tags.includes("security")) return "安全";
-  if (tags.some(t => t === "database" || t === "db")) return "数据库";
+  if (tags.some((t) => t === "database" || t === "db")) return "数据库";
   return "AI / LLM";
 }
 
 // ─── Registry Skill Card ───────────────────────────────────────────────────────
 function RegistrySkillCard({
-  skill, isInstalled, isInstalling, onInstall,
+  skill,
+  isInstalled,
+  isInstalling,
+  onInstall,
 }: {
   skill: RegistrySkillDisplay;
   isInstalled: boolean;
@@ -80,7 +99,10 @@ function RegistrySkillCard({
   return (
     <div className={s.card}>
       <div className={s.cardContent}>
-        <div className={s.cardIcon} style={{ background: iconColors.bg, color: iconColors.fg }}>
+        <div
+          className={s.cardIcon}
+          style={{ background: iconColors.bg, color: iconColors.fg }}
+        >
           <span>{initial}</span>
         </div>
         <div className={s.cardBody}>
@@ -88,10 +110,14 @@ function RegistrySkillCard({
             <span className={s.cardName}>{skill.name}</span>
             <span
               className={`${s.cardBadge} ${isInstalled ? s.cardBadgeInstalled : ""}`}
-              style={!isInstalled ? {
-                background: "rgba(139, 92, 246, 0.10)",
-                color: "#8b5cf6"
-              } : undefined}
+              style={
+                !isInstalled
+                  ? {
+                      background: "rgba(139, 92, 246, 0.10)",
+                      color: "#8b5cf6",
+                    }
+                  : undefined
+              }
             >
               {isInstalled ? "已安装" : skill.formattedInstalls}
             </span>
@@ -104,11 +130,13 @@ function RegistrySkillCard({
           disabled={isInstalling || isInstalled}
           title={isInstalled ? "已安装" : "安装"}
         >
-          {isInstalling
-            ? <Loader size={14} className={s.btnSpinner} />
-            : isInstalled
-            ? <Check size={14} />
-            : <Download size={14} />}
+          {isInstalling ? (
+            <Loader size={14} className={s.btnSpinner} />
+          ) : isInstalled ? (
+            <Check size={14} />
+          ) : (
+            <Download size={14} />
+          )}
         </button>
       </div>
     </div>
@@ -117,10 +145,19 @@ function RegistrySkillCard({
 
 // ─── Compact Skill Card ───────────────────────────────────────────────────────
 function SkillCard({
-  name, description, tags, isInstalled, isInstalling, onInstall,
+  name,
+  description,
+  tags,
+  isInstalled,
+  isInstalling,
+  onInstall,
 }: {
-  name: string; description: string; tags: string[];
-  isInstalled: boolean; isInstalling: boolean; onInstall: () => void;
+  name: string;
+  description: string;
+  tags: string[];
+  isInstalled: boolean;
+  isInstalling: boolean;
+  onInstall: () => void;
 }) {
   const cat = inferCategory(tags);
   const iconColors = getIconColors(name);
@@ -130,7 +167,10 @@ function SkillCard({
     <div className={s.card}>
       <div className={s.cardContent}>
         {/* 左侧图标容器 */}
-        <div className={s.cardIcon} style={{ background: iconColors.bg, color: iconColors.fg }}>
+        <div
+          className={s.cardIcon}
+          style={{ background: iconColors.bg, color: iconColors.fg }}
+        >
           <span>{initial}</span>
         </div>
 
@@ -140,10 +180,14 @@ function SkillCard({
             <span className={s.cardName}>{name}</span>
             <span
               className={`${s.cardBadge} ${isInstalled ? s.cardBadgeInstalled : ""}`}
-              style={!isInstalled ? {
-                background: getCategoryColor(cat),
-                color: getCategoryTextColor(cat)
-              } : undefined}
+              style={
+                !isInstalled
+                  ? {
+                      background: getCategoryColor(cat),
+                      color: getCategoryTextColor(cat),
+                    }
+                  : undefined
+              }
             >
               {isInstalled ? "已安装" : cat}
             </span>
@@ -158,11 +202,13 @@ function SkillCard({
           disabled={isInstalling || isInstalled}
           title={isInstalled ? "已安装" : "安装"}
         >
-          {isInstalling
-            ? <Loader size={14} className={s.btnSpinner} />
-            : isInstalled
-            ? <Check size={14} />
-            : <Download size={14} />}
+          {isInstalling ? (
+            <Loader size={14} className={s.btnSpinner} />
+          ) : isInstalled ? (
+            <Check size={14} />
+          ) : (
+            <Download size={14} />
+          )}
         </button>
       </div>
     </div>
@@ -199,8 +245,14 @@ interface SourceTab {
 }
 
 function TabItem({
-  tab, active, onClick,
-}: { tab: SourceTab; active: boolean; onClick: () => void }) {
+  tab,
+  active,
+  onClick,
+}: {
+  tab: SourceTab;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       className={`${s.tab} ${active ? s.tabActive : ""}`}
@@ -208,21 +260,25 @@ function TabItem({
       title={tab.url ?? tab.label}
     >
       <span className={s.tabIcon}>
-        {tab.isLocal
-          ? <BookMarked size={13} />
-          : tab.isRegistry
-          ? <Database size={13} />
-          : <Globe size={13} />}
+        {tab.isLocal ? (
+          <BookMarked size={13} />
+        ) : tab.isRegistry ? (
+          <Database size={13} />
+        ) : (
+          <Globe size={13} />
+        )}
       </span>
       <span className={s.tabLabel}>{tab.shortLabel}</span>
       <span className={s.tabRight}>
-        {tab.loading
-          ? <Loader size={11} className={s.tabSpinner} />
-          : tab.needsSync
-          ? <span className={s.tabStatus}>未同步</span>
-          : tab.error
-          ? <AlertTriangle size={11} className={s.tabError} />
-          : <span className={s.tabCount}>{tab.count}</span>}
+        {tab.loading ? (
+          <Loader size={11} className={s.tabSpinner} />
+        ) : tab.needsSync ? (
+          <span className={s.tabStatus}>未同步</span>
+        ) : tab.error ? (
+          <AlertTriangle size={11} className={s.tabError} />
+        ) : (
+          <span className={s.tabCount}>{tab.count}</span>
+        )}
       </span>
     </button>
   );
@@ -230,8 +286,14 @@ function TabItem({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export function DiscoverPage() {
-  const { skills: installedSkills, create } = useSkills();
-  const { sourceStates, registryState, searchRegistry, anyLoading, refresh } = useSource();
+  const {
+    skills: installedSkills,
+    create,
+    autoEnableDefaultApps,
+  } = useSkills();
+  const { getAppMeta } = useApps();
+  const { sourceStates, registryState, searchRegistry, anyLoading, refresh } =
+    useSource();
   const { settings, updateSettings } = useSettings();
   const [localResources, setLocalResources] = useState<Resource[]>([]);
   const [localLoading, setLocalLoading] = useState(true);
@@ -246,10 +308,12 @@ export function DiscoverPage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const installedIds = useMemo(
-    () => new Set(installedSkills.map((sk) => sk.id)), [installedSkills]
+    () => new Set(installedSkills.map((sk) => sk.id)),
+    [installedSkills]
   );
   const installedNames = useMemo(
-    () => new Set(installedSkills.map((sk) => sk.name.toLowerCase())), [installedSkills]
+    () => new Set(installedSkills.map((sk) => sk.name.toLowerCase())),
+    [installedSkills]
   );
 
   useEffect(() => {
@@ -262,33 +326,57 @@ export function DiscoverPage() {
     })();
   }, []);
 
-  const matches = useCallback((name: string, desc: string | null | undefined, tags: string[], inst: boolean) => {
-    if (category === "已安装" && !inst) return false;
-    if (category === "未安装" && inst) return false;
-    if (!["全部", "已安装", "未安装"].includes(category) && inferCategory(tags) !== category) return false;
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return name.toLowerCase().includes(q) || (desc ?? "").toLowerCase().includes(q)
-      || tags.some(t => t.toLowerCase().includes(q));
-  }, [search, category]);
+  const matches = useCallback(
+    (
+      name: string,
+      desc: string | null | undefined,
+      tags: string[],
+      inst: boolean
+    ) => {
+      if (category === "已安装" && !inst) return false;
+      if (category === "未安装" && inst) return false;
+      if (
+        !["全部", "已安装", "未安装"].includes(category) &&
+        inferCategory(tags) !== category
+      )
+        return false;
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        name.toLowerCase().includes(q) ||
+        (desc ?? "").toLowerCase().includes(q) ||
+        tags.some((t) => t.toLowerCase().includes(q))
+      );
+    },
+    [search, category]
+  );
 
-  const filteredLocal = useMemo(() =>
-    localResources.filter(r => matches(r.title, r.description, r.tags, installedIds.has(r.id))),
+  const filteredLocal = useMemo(
+    () =>
+      localResources.filter((r) =>
+        matches(r.title, r.description, r.tags, installedIds.has(r.id))
+      ),
     [localResources, installedIds, matches]
   );
 
-  const repoGroups = useMemo(() =>
-    Array.from(sourceStates.entries()).map(([id, state]) => ({
-      id,
-      label: state.skills[0]?.repoLabel ?? id,
-      url: state.skills[0]?.repoUrl ?? "",
-      status: state.status,
-      error: state.error,
-      skills: state.skills.filter((sk: RemoteSkill) =>
-        matches(sk.name, sk.description, sk.tags, installedNames.has(sk.name.toLowerCase()))
-      ),
-      allCount: state.skills.length,
-    })),
+  const repoGroups = useMemo(
+    () =>
+      Array.from(sourceStates.entries()).map(([id, state]) => ({
+        id,
+        label: state.skills[0]?.repoLabel ?? id,
+        url: state.skills[0]?.repoUrl ?? "",
+        status: state.status,
+        error: state.error,
+        skills: state.skills.filter((sk: RemoteSkill) =>
+          matches(
+            sk.name,
+            sk.description,
+            sk.tags,
+            installedNames.has(sk.name.toLowerCase())
+          )
+        ),
+        allCount: state.skills.length,
+      })),
     [sourceStates, installedNames, matches]
   );
 
@@ -313,124 +401,200 @@ export function DiscoverPage() {
       loading: registryState.status === "loading",
       error: registryState.error,
     };
-    const repoTabs: SourceTab[] = repoGroups.map((g: { id: string; label: string; url: string; status: string; error: string | null; skills: RemoteSkill[] }) => ({
-      id: g.id,
-      label: g.label,
-      shortLabel: g.label.split("/").pop() ?? g.label,
-      isLocal: false,
-      count: g.skills.length,
-      loading: g.status === "loading",
-      error: g.error,
-      needsSync: repoSourceNeedsSync(g.error),
-      url: g.url,
-    }));
+    const repoTabs: SourceTab[] = repoGroups.map(
+      (g: {
+        id: string;
+        label: string;
+        url: string;
+        status: string;
+        error: string | null;
+        skills: RemoteSkill[];
+      }) => ({
+        id: g.id,
+        label: g.label,
+        shortLabel: g.label.split("/").pop() ?? g.label,
+        isLocal: false,
+        count: g.skills.length,
+        loading: g.status === "loading",
+        error: g.error,
+        needsSync: repoSourceNeedsSync(g.error),
+        url: g.url,
+      })
+    );
     return [localTab, registryTab, ...repoTabs];
-  }, [filteredLocal.length, localLoading, localError, registryState, repoGroups]);
+  }, [
+    filteredLocal.length,
+    localLoading,
+    localError,
+    registryState,
+    repoGroups,
+  ]);
 
-  const handleInstallLocal = useCallback(async (resource: Resource) => {
-    if (installedIds.has(resource.id)) return;
-    setInstalling(resource.id);
-    const result = await create({ name: resource.title, description: resource.description || null,
-      content: resource.content, directories: [], tags: resource.tags, projectIds: [] });
-    setInstalling(null);
-    setToast(result.ok ? `「${resource.title}」已安装！` : formatSkillOperationError(result.error, "安装"));
-    setTimeout(() => setToast(null), 2400);
-  }, [create, installedIds]);
+  const formatInstalledToast = useCallback(
+    (skillName: string, enabledIds: string[]) => {
+      if (enabledIds.length > 0) {
+        const labels = enabledIds.map((id) => getAppMeta(id)?.label ?? id);
+        return `「${skillName}」已入库并启用到 ${labels.join(", ")}！`;
+      }
+      return `「${skillName}」已加入技能库（可在卡片上按需单独启用）`;
+    },
+    [getAppMeta]
+  );
 
-  const handleInstallRemote = useCallback(async (skill: RemoteSkill) => {
-    if (installedNames.has(skill.name.toLowerCase())) return;
-    setInstalling(skill.id);
-    const tags = skill.repoId === BACKUP_SOURCE_REPO_ID
-      ? skill.tags.filter((t) => !t.startsWith("_"))
-      : [...skill.tags.filter((t) => !t.startsWith("_")), `_remote:${skill.repoId}`];
-    const result = await create({ name: skill.name, description: skill.description || null,
-      content: skill.content, directories: [], tags, projectIds: [] });
-    setInstalling(null);
-    setToast(result.ok ? `「${skill.name}」已安装！` : formatSkillOperationError(result.error, "安装"));
-    setTimeout(() => setToast(null), 2400);
-  }, [create, installedNames]);
-
-  const handleSyncSource = useCallback(async (repoId: string) => {
-    const repo = settings.thirdPartyRepos?.find((item) => item.id === repoId);
-    if (!repo) return;
-
-    setSyncingRepoId(repoId);
-    const result = await repoSourceSync(repo);
-    setSyncingRepoId(null);
-
-    if (!result.ok) {
-      setToast(`同步失败：${result.error}`);
+  const handleInstallLocal = useCallback(
+    async (resource: Resource) => {
+      if (installedIds.has(resource.id)) return;
+      setInstalling(resource.id);
+      const result = await create({
+        name: resource.title,
+        description: resource.description || null,
+        content: resource.content,
+        directories: [],
+        tags: resource.tags,
+        projectIds: [],
+      });
+      if (result.ok) {
+        const enabledIds = await autoEnableDefaultApps(result.value.skill.id);
+        setInstalling(null);
+        setToast(formatInstalledToast(resource.title, enabledIds));
+      } else {
+        setInstalling(null);
+        setToast(formatSkillOperationError(result.error, "安装"));
+      }
       setTimeout(() => setToast(null), 2400);
-      return;
-    }
+    },
+    [autoEnableDefaultApps, create, formatInstalledToast, installedIds]
+  );
 
-    const saved = await updateSettings({
-      thirdPartyRepos: (settings.thirdPartyRepos ?? []).map((item) =>
-        item.id === repoId ? result.value : item
-      ),
-    });
-    if (!saved) {
-      setToast("仓库源信息保存失败");
+  const handleInstallRemote = useCallback(
+    async (skill: RemoteSkill) => {
+      if (installedNames.has(skill.name.toLowerCase())) return;
+      setInstalling(skill.id);
+      const tags =
+        skill.repoId === BACKUP_SOURCE_REPO_ID
+          ? skill.tags.filter((t) => !t.startsWith("_"))
+          : [
+              ...skill.tags.filter((t) => !t.startsWith("_")),
+              `_remote:${skill.repoId}`,
+            ];
+      const result = await create({
+        name: skill.name,
+        description: skill.description || null,
+        content: skill.content,
+        directories: [],
+        tags,
+        projectIds: [],
+      });
+      if (result.ok) {
+        const enabledIds = await autoEnableDefaultApps(result.value.skill.id);
+        setInstalling(null);
+        setToast(formatInstalledToast(skill.name, enabledIds));
+      } else {
+        setInstalling(null);
+        setToast(formatSkillOperationError(result.error, "安装"));
+      }
       setTimeout(() => setToast(null), 2400);
-      return;
-    }
+    },
+    [autoEnableDefaultApps, create, formatInstalledToast, installedNames]
+  );
 
-    refresh(repoId);
-    setToast(`已同步 ${result.value.label}`);
-    setTimeout(() => setToast(null), 2400);
-  }, [refresh, settings.thirdPartyRepos, updateSettings]);
+  const handleSyncSource = useCallback(
+    async (repoId: string) => {
+      const repo = settings.thirdPartyRepos?.find((item) => item.id === repoId);
+      if (!repo) return;
+
+      setSyncingRepoId(repoId);
+      const result = await repoSourceSync(repo);
+      setSyncingRepoId(null);
+
+      if (!result.ok) {
+        setToast(`同步失败：${result.error}`);
+        setTimeout(() => setToast(null), 2400);
+        return;
+      }
+
+      const saved = await updateSettings({
+        thirdPartyRepos: (settings.thirdPartyRepos ?? []).map((item) =>
+          item.id === repoId ? result.value : item
+        ),
+      });
+      if (!saved) {
+        setToast("仓库源信息保存失败");
+        setTimeout(() => setToast(null), 2400);
+        return;
+      }
+
+      refresh(repoId);
+      setToast(`已同步 ${result.value.label}`);
+      setTimeout(() => setToast(null), 2400);
+    },
+    [refresh, settings.thirdPartyRepos, updateSettings]
+  );
 
   // Registry search input change handler
-  const handleRegistrySearchChange = useCallback((query: string) => {
-    setRegistrySearchInput(query);
-    searchRegistry(query);
-  }, [searchRegistry]);
+  const handleRegistrySearchChange = useCallback(
+    (query: string) => {
+      setRegistrySearchInput(query);
+      searchRegistry(query);
+    },
+    [searchRegistry]
+  );
 
   // Install registry skill
-  const handleInstallRegistrySkill = useCallback(async (skill: RegistrySkillDisplay) => {
-    if (installedNames.has(skill.name.toLowerCase())) return;
+  const handleInstallRegistrySkill = useCallback(
+    async (skill: RegistrySkillDisplay) => {
+      if (installedNames.has(skill.name.toLowerCase())) return;
 
-    setInstalling(skill.id);
-    setToast("正在获取技能内容...");
+      setInstalling(skill.id);
+      setToast("正在获取技能内容...");
 
-    // First fetch content
-    const contentResult = await registryFetchContent(skill.source, skill.skillId);
+      // First fetch content
+      const contentResult = await registryFetchContent(
+        skill.source,
+        skill.skillId
+      );
 
-    if (!contentResult.ok) {
-      setToast(`获取内容失败：${contentResult.error}`);
-      setInstalling(null);
-      setTimeout(() => setToast(null), 2400);
-      return;
-    }
-
-    // Then install
-    const installResult = await registryInstall({
-      skillId: skill.skillId,
-      skillName: skill.name,
-      content: contentResult.value.content,
-      source: skill.source,
-      apps: ["claude", "codex", "cursor"],
-    });
-
-    setInstalling(null);
-
-    if (installResult.ok) {
-      const { installedApps, failedApps } = installResult.value;
-      if (installedApps.length > 0) {
-        setToast(`「${skill.name}」已安装到 ${installedApps.join(", ")}！`);
-      } else if (failedApps.length > 0) {
-        setToast(`安装失败：${failedApps.join(", ")}`);
+      if (!contentResult.ok) {
+        setToast(`获取内容失败：${contentResult.error}`);
+        setInstalling(null);
+        setTimeout(() => setToast(null), 2400);
+        return;
       }
-    } else {
-      setToast(`安装失败：${installResult.error}`);
-    }
-    setTimeout(() => setToast(null), 2400);
-  }, [installedNames]);
+
+      // Import into managed library and only auto-enable user's configured default apps
+      const createResult = await create({
+        name: skill.name,
+        description: `来源：${skill.source}`,
+        content: contentResult.value.content,
+        directories: [],
+        tags: [`_remote:registry:${skill.source}`],
+        projectIds: [],
+      });
+
+      if (createResult.ok) {
+        const enabledIds = await autoEnableDefaultApps(
+          createResult.value.skill.id
+        );
+        setInstalling(null);
+        setToast(formatInstalledToast(skill.name, enabledIds));
+      } else {
+        setInstalling(null);
+        setToast(formatSkillOperationError(createResult.error, "安装"));
+      }
+      setTimeout(() => setToast(null), 2400);
+    },
+    [autoEnableDefaultApps, create, formatInstalledToast, installedNames]
+  );
 
   // Active tab data
-  const activeGroup = activeTab === "__local__" ? null : repoGroups.find(g => g.id === activeTab);
-  const activeTabData = tabs.find(t => t.id === activeTab);
-  const activeRepoNeedsSync = activeGroup ? repoSourceNeedsSync(activeGroup.error) : false;
+  const activeGroup =
+    activeTab === "__local__"
+      ? null
+      : repoGroups.find((g) => g.id === activeTab);
+  const activeTabData = tabs.find((t) => t.id === activeTab);
+  const activeRepoNeedsSync = activeGroup
+    ? repoSourceNeedsSync(activeGroup.error)
+    : false;
 
   return (
     <div className={s.page}>
@@ -448,9 +612,13 @@ export function DiscoverPage() {
           </button>
         </div>
         <div className={s.tabList}>
-          {tabs.map(tab => (
-            <TabItem key={tab.id} tab={tab} active={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)} />
+          {tabs.map((tab) => (
+            <TabItem
+              key={tab.id}
+              tab={tab}
+              active={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+            />
           ))}
         </div>
       </aside>
@@ -464,18 +632,32 @@ export function DiscoverPage() {
             {activeTabData?.url && (
               <span className={s.contentUrl}>{activeTabData.url}</span>
             )}
-            {activeRepoNeedsSync && <span className={s.statusBadge}>未同步</span>}
+            {activeRepoNeedsSync && (
+              <span className={s.statusBadge}>未同步</span>
+            )}
           </div>
           <div className={s.topBarRight}>
             <div className={s.searchWrap}>
               <Search size={13} className={s.searchIcon} />
-              <input ref={searchRef} className={s.search} value={search}
-                onChange={e => setSearch(e.target.value)} placeholder="搜索..." />
+              <input
+                ref={searchRef}
+                className={s.search}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索..."
+              />
             </div>
             {activeGroup && (
-              <button className={s.refreshBtn} onClick={() => refresh(activeGroup.id)}
-                disabled={activeGroup.status === "loading"} title="刷新此源">
-                <RefreshCw size={13} className={activeGroup.status === "loading" ? s.spinning : ""} />
+              <button
+                className={s.refreshBtn}
+                onClick={() => refresh(activeGroup.id)}
+                disabled={activeGroup.status === "loading"}
+                title="刷新此源"
+              >
+                <RefreshCw
+                  size={13}
+                  className={activeGroup.status === "loading" ? s.spinning : ""}
+                />
               </button>
             )}
           </div>
@@ -483,9 +665,14 @@ export function DiscoverPage() {
 
         {/* Category filter */}
         <div className={s.filterBar}>
-          {CATEGORIES.map(c => (
-            <button key={c} className={`${s.pill} ${category === c ? s.pillActive : ""}`}
-              onClick={() => setCategory(c)}>{c}</button>
+          {CATEGORIES.map((c) => (
+            <button
+              key={c}
+              className={`${s.pill} ${category === c ? s.pillActive : ""}`}
+              onClick={() => setCategory(c)}
+            >
+              {c}
+            </button>
           ))}
         </div>
 
@@ -494,18 +681,30 @@ export function DiscoverPage() {
           {activeTab === "__local__" ? (
             // Local skills
             localLoading ? (
-              <div className={s.grid}>{[1,2,3,4,5,6].map(i => <SkeletonCard key={i} />)}</div>
+              <div className={s.grid}>
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </div>
             ) : localError ? (
-              <div className={s.errorState}><AlertTriangle size={16} /><span>{localError}</span></div>
+              <div className={s.errorState}>
+                <AlertTriangle size={16} />
+                <span>{localError}</span>
+              </div>
             ) : filteredLocal.length === 0 ? (
               <div className={s.emptyState}>暂无匹配的 Skills</div>
             ) : (
               <div className={s.grid}>
-                {filteredLocal.map(r => (
-                  <SkillCard key={r.id} name={r.title} description={r.description ?? ""}
-                    tags={r.tags} isInstalled={installedIds.has(r.id)}
+                {filteredLocal.map((r) => (
+                  <SkillCard
+                    key={r.id}
+                    name={r.title}
+                    description={r.description ?? ""}
+                    tags={r.tags}
+                    isInstalled={installedIds.has(r.id)}
                     isInstalling={installing === r.id}
-                    onInstall={() => handleInstallLocal(r)} />
+                    onInstall={() => handleInstallLocal(r)}
+                  />
                 ))}
               </div>
             )
@@ -522,7 +721,11 @@ export function DiscoverPage() {
                 />
               </div>
               {registryState.status === "loading" ? (
-                <div className={s.grid}>{[1,2,3,4,5,6].map(i => <SkeletonCard key={i} />)}</div>
+                <div className={s.grid}>
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <SkeletonCard key={i} />
+                  ))}
+                </div>
               ) : registryState.error ? (
                 <div className={s.errorState}>
                   <AlertTriangle size={16} />
@@ -534,7 +737,7 @@ export function DiscoverPage() {
                 <div className={s.emptyState}>未找到匹配的 Skills</div>
               ) : (
                 <div className={s.grid}>
-                  {registryState.skills.map(sk => (
+                  {registryState.skills.map((sk) => (
                     <RegistrySkillCard
                       key={sk.id}
                       skill={sk}
@@ -549,22 +752,38 @@ export function DiscoverPage() {
           ) : activeGroup ? (
             // Remote repo skills
             activeGroup.status === "loading" ? (
-              <div className={s.grid}>{[1,2,3,4,5,6].map(i => <SkeletonCard key={i} />)}</div>
-              ) : activeRepoNeedsSync ? (
-                <div className={s.noticeState}>
-                  <AlertTriangle size={16} />
-                  <div>
-                    <div className={s.noticeTitle}>这个仓库源还没有同步到本地</div>
-                    <div className={s.noticeText}>先同步一次本地副本，再浏览和安装其中的 Skills。</div>
+              <div className={s.grid}>
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </div>
+            ) : activeRepoNeedsSync ? (
+              <div className={s.noticeState}>
+                <AlertTriangle size={16} />
+                <div>
+                  <div className={s.noticeTitle}>
+                    这个仓库源还没有同步到本地
                   </div>
-                  <button
-                    className={s.noticeBtn}
-                    onClick={() => handleSyncSource(activeGroup.id)}
-                    disabled={syncingRepoId === activeGroup.id}
-                  >
-                    {syncingRepoId === activeGroup.id ? <><Loader size={12} className={s.spinning} /> 同步中</> : <><RefreshCw size={12} /> 立即同步</>}
-                  </button>
+                  <div className={s.noticeText}>
+                    先同步一次本地副本，再浏览和安装其中的 Skills。
+                  </div>
                 </div>
+                <button
+                  className={s.noticeBtn}
+                  onClick={() => handleSyncSource(activeGroup.id)}
+                  disabled={syncingRepoId === activeGroup.id}
+                >
+                  {syncingRepoId === activeGroup.id ? (
+                    <>
+                      <Loader size={12} className={s.spinning} /> 同步中
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={12} /> 立即同步
+                    </>
+                  )}
+                </button>
+              </div>
             ) : activeGroup.error ? (
               <div className={s.errorState}>
                 <AlertTriangle size={16} />
@@ -575,12 +794,16 @@ export function DiscoverPage() {
               <div className={s.emptyState}>暂无匹配的 Skills</div>
             ) : (
               <div className={s.grid}>
-                {activeGroup.skills.map(sk => (
-                  <SkillCard key={sk.id} name={sk.name} description={sk.description}
+                {activeGroup.skills.map((sk) => (
+                  <SkillCard
+                    key={sk.id}
+                    name={sk.name}
+                    description={sk.description}
                     tags={sk.tags}
                     isInstalled={installedNames.has(sk.name.toLowerCase())}
                     isInstalling={installing === sk.id}
-                    onInstall={() => handleInstallRemote(sk)} />
+                    onInstall={() => handleInstallRemote(sk)}
+                  />
                 ))}
               </div>
             )

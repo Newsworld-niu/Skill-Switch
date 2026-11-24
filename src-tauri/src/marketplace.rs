@@ -60,7 +60,7 @@ fn load_marketplace_data(
                 .into_iter()
                 .filter(|item| !item.deleted.unwrap_or(false))
                 .collect();
-            filtered.sort_by(|a, b| b.stars.cmp(&a.stars));
+            filtered.sort_by_key(|a| std::cmp::Reverse(a.stars));
 
             // Cache the result
             let _ = MARKETPLACE_CACHE.set(filtered);

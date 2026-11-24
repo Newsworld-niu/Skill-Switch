@@ -193,6 +193,18 @@ export async function skillCheckSymlinkStatus(
 }
 
 /**
+ * Get globally enabled app IDs for every managed skill in a single call
+ * Maps to backend: skill_list_global_enabled_apps() -> Record<string, string[]>
+ */
+export async function skillListGlobalEnabledApps(): Promise<
+  Result<Record<string, string[]>>
+> {
+  return tauriInvoke<Record<string, string[]>>(
+    "skill_list_global_enabled_apps"
+  );
+}
+
+/**
  * Repair broken symlinks for a skill
  * Maps to backend: skill_repair_broken_symlinks(CheckSymlinkStatusInput) -> RepairBrokenSymlinksResult
  */

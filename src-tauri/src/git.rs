@@ -265,6 +265,26 @@ pub fn clone_repository(
     Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
 }
 
+pub fn clone_repository_shallow(
+    remote_url: &str,
+    destination: &Path,
+    branch: Option<&str>,
+) -> Result<(), String> {
+    let mut command = Command::new("git");
+    command.args(["clone", "--depth", "1"]);
+    if let Some(branch) = branch {
+        command.arg("--branch").arg(branch);
+    }
+    command.arg(remote_url).arg(destination);
+
+    let output = command.output().map_err(|error| error.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+}
+
 pub fn pull(path: &Path) -> Result<(), String> {
     let output = run_git(Some(path), &["pull"]).ok_or_else(|| "git pull failed".to_string())?;
     if output.status.success() {

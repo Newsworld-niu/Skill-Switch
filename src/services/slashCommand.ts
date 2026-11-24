@@ -1,5 +1,7 @@
 import { tauriInvoke, type Result } from "./tauri";
 import type {
+  CheckSlashCommandSymlinkInput,
+  CheckSlashCommandSymlinkResult,
   CreateSlashCommandInput,
   CreateSlashCommandResult,
   ExternalSlashCommand,
@@ -109,6 +111,15 @@ export async function slashCommandUninstallGlobal(
 ): Promise<Result<InstallSlashCommandGlobalResult>> {
   return tauriInvoke<InstallSlashCommandGlobalResult>(
     "slash_command_uninstall_global",
+    { input }
+  );
+}
+
+export async function slashCommandCheckSymlinkStatus(
+  input: CheckSlashCommandSymlinkInput
+): Promise<Result<CheckSlashCommandSymlinkResult>> {
+  return tauriInvoke<CheckSlashCommandSymlinkResult>(
+    "slash_command_check_symlink_status",
     { input }
   );
 }

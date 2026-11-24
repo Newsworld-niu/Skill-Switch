@@ -65,7 +65,13 @@ export type Variant = "primary" | "secondary" | "danger" | "ghost";
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
-export type ResourceKind = "skill" | "slash-command" | "prompt" | "agents";
+export type ResourceKind =
+  | "skill"
+  | "slash-command"
+  | "prompt"
+  | "agents"
+  | "mcp-server"
+  | "plugin";
 export type ResourceScope = "global" | "project";
 export type ResourceOrigin = "private" | "vendor" | "forked-vendor";
 export type SourceStatus =
@@ -88,7 +94,8 @@ export type ProvenanceKind =
   | "file-import"
   | "external-app"
   | "marketplace"
-  | "repo-source";
+  | "repo-source"
+  | "plugin";
 
 export interface Provenance {
   kind: ProvenanceKind;
@@ -525,6 +532,66 @@ export interface ImportResult {
 
 // ─── Settings types ────────────────────────────────────────────────────────────
 
+export interface SshTargetConfig {
+  host: string;
+  user?: string | null;
+  port?: number | null;
+  identityFile?: string | null;
+  remoteAppPreset?: string | null;
+  globalPluginDir?: string | null;
+  injectSecrets?: boolean;
+}
+
+export interface CustomAppConfig {
+  id: string;
+  label: string;
+  accentColor: string;
+  globalSkillDir: string;
+  projectSkillDir?: string | null;
+  globalCommandDir?: string | null;
+  projectCommandDir?: string | null;
+  globalMcpConfigPath?: string | null;
+  projectMcpConfigPath?: string | null;
+  mcpFormat?: "json" | "toml" | null;
+  mcpRootKey?: string | null;
+  ssh?: SshTargetConfig | null;
+}
+
+export interface SshAppSyncLedger {
+  skills: string[];
+  commands: string[];
+  mcpServers: string[];
+  plugins: string[];
+  remoteHome?: string | null;
+  lastSyncedAt?: number | null;
+}
+
+export interface DiscoveredSshHost {
+  alias: string;
+  hostname?: string | null;
+  user?: string | null;
+  port?: number | null;
+  identityFile?: string | null;
+  sourceFile: string;
+}
+
+export interface SshConnectionTestResult {
+  ok: boolean;
+  remoteHome?: string | null;
+  remoteOs?: string | null;
+  latencyMs: number;
+  message: string;
+}
+
+export interface SshSyncSummaryResult {
+  appId: string;
+  syncedSkills: number;
+  syncedCommands: number;
+  syncedMcps: number;
+  syncedPlugins: number;
+  warnings: string[];
+}
+
 export interface AppSettings {
   theme: string;
   locale: string;
@@ -535,6 +602,9 @@ export interface AppSettings {
   maxBackups: number;
   backupSource: BackupSource | null;
   thirdPartyRepos: ThirdPartyRepo[];
+  customApps: CustomAppConfig[];
+  hiddenAppIds: string[];
+  defaultInstallAppIds: string[];
 }
 
 // ─── Third-party repo source types ────────────────────────────────────────────
@@ -577,8 +647,8 @@ export interface BootstrapBackupInput {
 
 export interface ThirdPartyRepo {
   id: string;
-  url: string;           // e.g. https://github.com/anthropics/skills
-  label: string;         // display name
+  url: string; // e.g. https://github.com/anthropics/skills
+  label: string; // display name
   enabled: boolean;
   addedAt: number;
   localPath?: string | null;
@@ -586,7 +656,7 @@ export interface ThirdPartyRepo {
 }
 
 export interface RemoteSkill {
-  id: string;            // repoId + path slug
+  id: string; // repoId + path slug
   repoId: string;
   repoLabel: string;
   repoUrl: string;
@@ -594,7 +664,7 @@ export interface RemoteSkill {
   description: string;
   content: string;
   tags: string[];
-  path: string;          // file path in repo
+  path: string; // file path in repo
   rawUrl: string;
 }
 
@@ -646,6 +716,17 @@ export interface CheckSymlinkStatusInput {
 
 export interface CheckSymlinkStatusResult {
   skillId: string;
+  statuses: SkillSymlinkStatus[];
+}
+
+export interface CheckSlashCommandSymlinkInput {
+  commandId: string;
+  scope: "global" | "project";
+  projectPath?: string | null;
+}
+
+export interface CheckSlashCommandSymlinkResult {
+  commandId: string;
   statuses: SkillSymlinkStatus[];
 }
 
@@ -788,7 +869,7 @@ export interface RegistrySkill {
   skillId: string;
   name: string;
   installs: number;
-  source: string;  // e.g., "anthropics/skills"
+  source: string; // e.g., "anthropics/skills"
 }
 
 /** Search result from skills.sh API */
@@ -817,4 +898,290 @@ export interface RegistryInstallInput {
 export interface RegistryInstallResult {
   installedApps: string[];
   failedApps: string[];
+}
+
+// ─── MCP Server types ─────────────────────────────────────────────────────────
+
+export type McpTransport = "stdio" | "http" | "sse";
+export type ClaudeProjectMcpMode = "local" | "project";
+
+export interface McpEnvVarSpec {
+  name: string;
+  description?: string | null;
+  required: boolean;
+  isSecret: boolean;
+  defaultValue?: string | null;
+}
+
+export interface McpHeaderSpec {
+  name: string;
+  description?: string | null;
+  isSecret: boolean;
+  valueTemplate?: string | null;
+}
+
+export interface McpServer {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  transport: McpTransport;
+  command?: string | null;
+  args: string[];
+  url?: string | null;
+  envSpecs: McpEnvVarSpec[];
+  headerSpecs: McpHeaderSpec[];
+  tags: string[];
+  projectIds: string[];
+  pluginId?: string | null;
+  configuredSecretKeys: string[];
+  createdAt: number;
+  updatedAt: number;
+  provenance?: Provenance;
+}
+
+export interface CreateMcpServerInput {
+  name: string;
+  slug?: string | null;
+  description?: string | null;
+  transport: McpTransport;
+  command?: string | null;
+  args: string[];
+  url?: string | null;
+  envSpecs: McpEnvVarSpec[];
+  headerSpecs: McpHeaderSpec[];
+  secretValues?: Record<string, string>;
+  tags: string[];
+  projectIds: string[];
+}
+
+export interface UpdateMcpServerInput {
+  id: string;
+  name?: string | null;
+  description?: string | null;
+  transport?: McpTransport | null;
+  command?: string | null;
+  args?: string[] | null;
+  url?: string | null;
+  envSpecs?: McpEnvVarSpec[] | null;
+  headerSpecs?: McpHeaderSpec[] | null;
+  secretValues?: Record<string, string> | null;
+  tags?: string[] | null;
+  projectIds?: string[] | null;
+}
+
+export interface CreateMcpServerResult {
+  server: McpServer;
+  backupSync: BackupSyncResult;
+}
+
+export interface InstallMcpGlobalInput {
+  serverId: string;
+  apps: string[];
+  useEnvPlaceholders?: boolean;
+}
+
+export interface InstallMcpToProjectInput {
+  serverId: string;
+  projectPath: string;
+  apps: string[];
+  claudeMode?: ClaudeProjectMcpMode;
+}
+
+export interface InstallMcpResult {
+  installedApps: string[];
+  failedApps: string[];
+  warnings: string[];
+}
+
+export interface McpAppInstallStatus {
+  appId: string;
+  supported: boolean;
+  installed: boolean;
+  configPath?: string | null;
+  scopeDetail?: string | null;
+  hasDrift: boolean;
+  unsupportedReason?: string | null;
+}
+
+export interface CheckMcpStatusInput {
+  serverId: string;
+  scope: "global" | "project";
+  projectPath?: string | null;
+}
+
+export interface CheckMcpStatusResult {
+  serverId: string;
+  statuses: McpAppInstallStatus[];
+}
+
+export interface ExternalMcpServer {
+  slug: string;
+  name: string;
+  appId: string;
+  configPath: string;
+  transport: McpTransport;
+  command?: string | null;
+  args: string[];
+  url?: string | null;
+  detectedEnvKeys: string[];
+  detectedSecretKeys: string[];
+  isManaged: boolean;
+}
+
+export interface ImportExternalMcpInput {
+  appId: string;
+  configPath: string;
+  slug: string;
+  importSecretsToLocal?: boolean;
+}
+
+// ─── Plugin / Extension types ─────────────────────────────────────────────────
+
+export type PluginManifestKind =
+  | "agent-plugins"
+  | "claude-plugin"
+  | "codex-plugin"
+  | "cursor-plugin"
+  | "antigravity-plugin"
+  | "gemini-extension"
+  | "generic";
+
+export type PluginInstallMode = "native" | "projected";
+
+export interface PluginUserConfigField {
+  key: string;
+  title: string;
+  description?: string | null;
+  required: boolean;
+  sensitive: boolean;
+  defaultValue?: string | null;
+}
+
+export interface PluginComponentSummary {
+  skills: string[];
+  commands: string[];
+  mcpServers: string[];
+  hooks: string[];
+  agents: string[];
+  rules: string[];
+}
+
+export interface Plugin {
+  id: string;
+  slug: string;
+  name: string;
+  version?: string | null;
+  author?: string | null;
+  description?: string | null;
+  homepage?: string | null;
+  repositoryUrl?: string | null;
+  manifestKind: PluginManifestKind;
+  sourceDirPath: string;
+  userConfigSchema: PluginUserConfigField[];
+  userConfigValues: Record<string, string>;
+  configuredSecretKeys: string[];
+  components: PluginComponentSummary;
+  projectedSkillIds: string[];
+  projectedCommandIds: string[];
+  projectedMcpServerIds: string[];
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+  provenance?: Provenance;
+}
+
+export interface ImportPluginFromFolderInput {
+  folderPath: string;
+  projectComponentsToLibrary?: boolean;
+}
+
+export interface ImportPluginFromGitInput {
+  repoUrl: string;
+  subPath?: string | null;
+  branch?: string | null;
+  projectComponentsToLibrary?: boolean;
+}
+
+export interface DiscoveredPluginCandidate {
+  subPath: string;
+  name: string;
+  version?: string | null;
+  author?: string | null;
+  description?: string | null;
+  category?: string | null;
+  manifestKind: PluginManifestKind;
+  components: PluginComponentSummary;
+}
+
+export type ImportPluginOutcome =
+  | {
+      status: "imported";
+      plugins: Plugin[];
+      warnings: string[];
+      backupSync: BackupSyncResult;
+    }
+  | {
+      status: "selectPlugins";
+      stagingId: string;
+      sourceLabel: string;
+      marketplaceName?: string | null;
+      candidates: DiscoveredPluginCandidate[];
+    };
+
+export interface ImportStagedPluginsInput {
+  stagingId: string;
+  subPaths: string[];
+  projectComponentsToLibrary?: boolean;
+}
+
+export interface ImportPluginBatchResult {
+  plugins: Plugin[];
+  warnings: string[];
+  backupSync: BackupSyncResult;
+}
+
+export interface UpdatePluginConfigInput {
+  pluginId: string;
+  userConfigValues?: Record<string, string> | null;
+  secretValues?: Record<string, string> | null;
+  tags?: string[] | null;
+}
+
+export interface InstallPluginGlobalInput {
+  pluginId: string;
+  apps: string[];
+  preferNative?: boolean;
+}
+
+export interface InstallPluginToProjectInput {
+  pluginId: string;
+  projectPath: string;
+  apps: string[];
+  claudeMcpMode?: ClaudeProjectMcpMode;
+}
+
+export interface InstallPluginResult {
+  installedApps: string[];
+  failedApps: string[];
+  appModes: Record<string, PluginInstallMode>;
+  warnings: string[];
+}
+
+export interface PluginAppInstallStatus {
+  appId: string;
+  installed: boolean;
+  mode?: PluginInstallMode | null;
+  details?: string | null;
+}
+
+export interface CheckPluginStatusInput {
+  pluginId: string;
+  scope: "global" | "project";
+  projectPath?: string | null;
+}
+
+export interface CheckPluginStatusResult {
+  pluginId: string;
+  statuses: PluginAppInstallStatus[];
 }

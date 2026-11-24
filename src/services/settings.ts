@@ -43,9 +43,14 @@ const defaultSettings: AppSettings = {
   maxBackups: 10,
   backupSource: null,
   thirdPartyRepos: DEFAULT_THIRD_PARTY_REPOS,
+  customApps: [],
+  hiddenAppIds: [],
+  defaultInstallAppIds: [],
 };
 
-function normalizeBackupSource(source: BackupSource | null | undefined): BackupSource | null {
+function normalizeBackupSource(
+  source: BackupSource | null | undefined
+): BackupSource | null {
   if (!source) {
     return null;
   }
@@ -71,13 +76,25 @@ export async function settingsGet(): Promise<Result<AppSettings>> {
     if (!result.value.thirdPartyRepos) {
       result.value.thirdPartyRepos = DEFAULT_THIRD_PARTY_REPOS;
     } else {
-      result.value.thirdPartyRepos = result.value.thirdPartyRepos.map((repo) => ({
-        ...repo,
-        localPath: repo.localPath ?? null,
-        lastSyncedAt: repo.lastSyncedAt ?? null,
-      }));
+      result.value.thirdPartyRepos = result.value.thirdPartyRepos.map(
+        (repo) => ({
+          ...repo,
+          localPath: repo.localPath ?? null,
+          lastSyncedAt: repo.lastSyncedAt ?? null,
+        })
+      );
     }
-    result.value.backupSource = normalizeBackupSource(result.value.backupSource);
+    result.value.backupSource = normalizeBackupSource(
+      result.value.backupSource
+    );
+    result.value.customApps = (result.value.customApps ?? []).map((app) => ({
+      ...app,
+      projectSkillDir: app.projectSkillDir ?? null,
+      globalCommandDir: app.globalCommandDir ?? null,
+      projectCommandDir: app.projectCommandDir ?? null,
+    }));
+    result.value.hiddenAppIds = result.value.hiddenAppIds ?? [];
+    result.value.defaultInstallAppIds = result.value.defaultInstallAppIds ?? [];
   }
   return result;
 }
@@ -86,7 +103,9 @@ export async function settingsGet(): Promise<Result<AppSettings>> {
  * Set app settings
  * Maps to backend: settings_set(settings) -> ()
  */
-export async function settingsSet(settings: AppSettings): Promise<Result<void>> {
+export async function settingsSet(
+  settings: AppSettings
+): Promise<Result<void>> {
   return tauriInvoke<void>("settings_set", { settings });
 }
 

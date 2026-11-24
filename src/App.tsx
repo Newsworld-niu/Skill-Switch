@@ -2,12 +2,16 @@ import { useState } from "react";
 import { AppShell } from "./components/layout/AppShell";
 import { MyLibraryPage } from "./pages/MyLibraryPage";
 import { MySlashCommandsPage } from "./pages/MySlashCommandsPage";
+import { McpServersPage } from "./pages/McpServersPage";
+import { PluginsPage } from "./pages/PluginsPage";
 import { RepoBrowsePage } from "./pages/RepoBrowsePage";
 import { CreatePage } from "./pages/CreatePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AppProvider } from "./context/AppContext";
 import { SkillProvider } from "./context/SkillContext";
 import { SlashCommandProvider } from "./context/SlashCommandContext";
+import { McpProvider } from "./context/McpContext";
+import { PluginProvider } from "./context/PluginContext";
 import { ProjectProvider } from "./context/ProjectContext";
 import { SettingsProvider, useSettings } from "./context/SettingsContext";
 import { SourceProvider } from "./context/SourceContext";
@@ -21,11 +25,14 @@ import "./App.css";
 export type PageId =
   | "my-library"
   | "my-commands"
+  | "mcp-servers"
+  | "plugins"
   | "repo-browse"
   | "create"
   | "settings";
 export type LibraryTab = "self-created" | "external";
 export type CommandMode = "self-created" | "external";
+export type McpMode = "managed" | "external";
 
 function BackupGate({ children }: { children: React.ReactNode }) {
   const { settings, loading } = useSettings();
@@ -47,6 +54,7 @@ export default function App() {
     useState<LibraryTab>("self-created");
   const [activeCommandMode, setActiveCommandMode] =
     useState<CommandMode>("self-created");
+  const [activeMcpMode, setActiveMcpMode] = useState<McpMode>("managed");
   const [externalAppFilter, setExternalAppFilter] = useState<string | null>(
     null
   );
@@ -68,6 +76,11 @@ export default function App() {
     setActiveLibraryTab("external");
     setExternalAppFilter(appId);
     setActivePage("my-library");
+  };
+
+  const navigateToMcpMode = (mode: McpMode) => {
+    setActiveMcpMode(mode);
+    setActivePage("mcp-servers");
   };
 
   const renderPage = () => {
@@ -92,6 +105,15 @@ export default function App() {
             onNavigateToSelfCreated={() => setActiveCommandMode("self-created")}
           />
         );
+      case "mcp-servers":
+        return (
+          <McpServersPage
+            activeMode={activeMcpMode}
+            onChangeMode={setActiveMcpMode}
+          />
+        );
+      case "plugins":
+        return <PluginsPage onNavigate={setActivePage} />;
       case "repo-browse":
         return <RepoBrowsePage repoId={activeRepoId ?? ""} />;
       case "create":
@@ -102,45 +124,51 @@ export default function App() {
   };
 
   return (
-    <AppProvider>
-      <SettingsProvider>
+    <SettingsProvider>
+      <AppProvider>
         <ToastProvider>
           <BackupGate>
             <SourceProvider>
               <SkillProvider>
                 <SlashCommandProvider>
-                  <ProjectProvider>
-                    <UpdaterProvider>
-                      <AppShell
-                        activePage={activePage}
-                        activeRepoId={activeRepoId}
-                        activeLibraryTab={activeLibraryTab}
-                        activeCommandMode={activeCommandMode}
-                        externalAppFilter={externalAppFilter}
-                        onNavigate={setActivePage}
-                        onNavigateRepo={navigateToRepo}
-                        onNavigateLibraryTab={navigateToLibraryTab}
-                        onNavigateExternalApp={navigateToExternalApp}
-                        onToggleCommandMode={() =>
-                          setActiveCommandMode((prev) =>
-                            prev === "self-created"
-                              ? "external"
-                              : "self-created"
-                          )
-                        }
-                      >
-                        {renderPage()}
-                      </AppShell>
-                      <ToastContainer />
-                      <UpdateNotification />
-                    </UpdaterProvider>
-                  </ProjectProvider>
+                  <McpProvider>
+                    <PluginProvider>
+                      <ProjectProvider>
+                        <UpdaterProvider>
+                          <AppShell
+                            activePage={activePage}
+                            activeRepoId={activeRepoId}
+                            activeLibraryTab={activeLibraryTab}
+                            activeCommandMode={activeCommandMode}
+                            activeMcpMode={activeMcpMode}
+                            externalAppFilter={externalAppFilter}
+                            onNavigate={setActivePage}
+                            onNavigateRepo={navigateToRepo}
+                            onNavigateLibraryTab={navigateToLibraryTab}
+                            onNavigateExternalApp={navigateToExternalApp}
+                            onNavigateMcpMode={navigateToMcpMode}
+                            onToggleCommandMode={() =>
+                              setActiveCommandMode((prev) =>
+                                prev === "self-created"
+                                  ? "external"
+                                  : "self-created"
+                              )
+                            }
+                          >
+                            {renderPage()}
+                          </AppShell>
+                          <ToastContainer />
+                          <UpdateNotification />
+                        </UpdaterProvider>
+                      </ProjectProvider>
+                    </PluginProvider>
+                  </McpProvider>
                 </SlashCommandProvider>
               </SkillProvider>
             </SourceProvider>
           </BackupGate>
         </ToastProvider>
-      </SettingsProvider>
-    </AppProvider>
+      </AppProvider>
+    </SettingsProvider>
   );
 }

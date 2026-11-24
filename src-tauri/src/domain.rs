@@ -7,6 +7,8 @@ pub enum ResourceKind {
     SlashCommand,
     Prompt,
     Agents,
+    McpServer,
+    Plugin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +96,7 @@ pub enum ProvenanceKind {
     ExternalApp,
     Marketplace,
     RepoSource,
+    Plugin,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -332,6 +335,10 @@ pub struct RepoLibrary {
     pub version: String,
     pub resources: Vec<Resource>,
     pub project_profiles: Vec<ProjectProfile>,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerRecord>,
+    #[serde(default)]
+    pub plugins: Vec<PluginRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -346,6 +353,8 @@ pub struct LocalState {
     pub migrated_legacy_store: bool,
     #[serde(default)]
     pub migrated_symlinks: bool, // Track if copied skills have been migrated to symlinks
+    #[serde(default)]
+    pub ssh_ledgers: std::collections::HashMap<String, SshAppSyncLedger>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -629,7 +638,101 @@ pub struct BootstrapBackupInput {
     pub branch: Option<String>,
 }
 
-// ─── Settings types ────────────────────────────────────────────────────────────
+// ─── Settings & SSH Target types ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SshTargetConfig {
+    pub host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_app_preset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global_plugin_dir: Option<String>,
+    #[serde(default)]
+    pub inject_secrets: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SshAppSyncLedger {
+    pub skills: Vec<String>,
+    pub commands: Vec<String>,
+    pub mcp_servers: Vec<String>,
+    pub plugins: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_synced_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DiscoveredSshHost {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_file: Option<String>,
+    pub source_file: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SshConnectionTestResult {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_home: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_os: Option<String>,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SshSyncSummaryResult {
+    pub app_id: String,
+    pub synced_skills: usize,
+    pub synced_commands: usize,
+    pub synced_mcps: usize,
+    pub synced_plugins: usize,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CustomAppConfig {
+    pub id: String,
+    pub label: String,
+    pub accent_color: String,
+    pub global_skill_dir: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_skill_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global_command_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_command_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global_mcp_config_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_mcp_config_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_root_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<SshTargetConfig>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -643,6 +746,9 @@ pub struct AppSettings {
     pub max_backups: u32,
     pub backup_source: Option<BackupSourceConfig>,
     pub third_party_repos: Vec<ThirdPartyRepo>,
+    pub custom_apps: Vec<CustomAppConfig>,
+    pub hidden_app_ids: Vec<String>,
+    pub default_install_app_ids: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -657,6 +763,9 @@ impl Default for AppSettings {
             max_backups: 10,
             backup_source: None,
             third_party_repos: Vec::new(),
+            custom_apps: Vec::new(),
+            hidden_app_ids: Vec::new(),
+            default_install_app_ids: Vec::new(),
         }
     }
 }
@@ -791,6 +900,23 @@ pub struct CheckSymlinkStatusInput {
 #[serde(rename_all = "camelCase")]
 pub struct CheckSymlinkStatusResult {
     pub skill_id: String,
+    pub statuses: Vec<SkillSymlinkStatus>,
+}
+
+/// Input for checking symlink status of a slash command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckSlashCommandSymlinkInput {
+    pub command_id: String,
+    pub scope: String,
+    pub project_path: Option<String>,
+}
+
+/// Result of checking symlink status of a slash command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckSlashCommandSymlinkResult {
+    pub command_id: String,
     pub statuses: Vec<SkillSymlinkStatus>,
 }
 
@@ -999,4 +1125,478 @@ pub struct RegistryInstallInput {
 pub struct RegistryInstallResult {
     pub installed_apps: Vec<String>,
     pub failed_apps: Vec<String>,
+}
+
+// ─── MCP Server types ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum McpTransport {
+    #[default]
+    Stdio,
+    Http,
+    Sse,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaudeProjectMcpMode {
+    #[default]
+    Local,
+    Project,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpEnvVarSpec {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub is_secret: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpHeaderSpec {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub is_secret: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_template: Option<String>,
+}
+
+/// Sanitized MCP Server definition persisted in `RepoLibrary` (`library.json`).
+/// Secret values are NEVER stored here; they live exclusively in `local-secrets.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerRecord {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub transport: McpTransport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub env_specs: Vec<McpEnvVarSpec>,
+    #[serde(default)]
+    pub header_specs: Vec<McpHeaderSpec>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub project_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerDto {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub transport: McpTransport,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    pub env_specs: Vec<McpEnvVarSpec>,
+    pub header_specs: Vec<McpHeaderSpec>,
+    pub tags: Vec<String>,
+    pub project_ids: Vec<String>,
+    pub plugin_id: Option<String>,
+    pub configured_secret_keys: Vec<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMcpServerInput {
+    pub name: String,
+    pub slug: Option<String>,
+    pub description: Option<String>,
+    pub transport: McpTransport,
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    #[serde(default)]
+    pub env_specs: Vec<McpEnvVarSpec>,
+    #[serde(default)]
+    pub header_specs: Vec<McpHeaderSpec>,
+    #[serde(default)]
+    pub secret_values: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub project_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMcpServerInput {
+    pub id: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub transport: Option<McpTransport>,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub url: Option<String>,
+    pub env_specs: Option<Vec<McpEnvVarSpec>>,
+    pub header_specs: Option<Vec<McpHeaderSpec>>,
+    pub secret_values: Option<std::collections::HashMap<String, String>>,
+    pub tags: Option<Vec<String>>,
+    pub project_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMcpServerResult {
+    pub server: McpServerDto,
+    pub backup_sync: BackupSyncResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallMcpGlobalInput {
+    pub server_id: String,
+    pub apps: Vec<String>,
+    #[serde(default)]
+    pub use_env_placeholders: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallMcpToProjectInput {
+    pub server_id: String,
+    pub project_path: String,
+    pub apps: Vec<String>,
+    pub claude_mode: Option<ClaudeProjectMcpMode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallMcpResult {
+    pub installed_apps: Vec<String>,
+    pub failed_apps: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpAppInstallStatus {
+    pub app_id: String,
+    pub supported: bool,
+    pub installed: bool,
+    pub config_path: Option<String>,
+    pub scope_detail: Option<String>,
+    pub has_drift: bool,
+    pub unsupported_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckMcpStatusInput {
+    pub server_id: String,
+    pub scope: String,
+    pub project_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckMcpStatusResult {
+    pub server_id: String,
+    pub statuses: Vec<McpAppInstallStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMcpServerDto {
+    pub slug: String,
+    pub name: String,
+    pub app_id: String,
+    pub config_path: String,
+    pub transport: McpTransport,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    pub detected_env_keys: Vec<String>,
+    pub detected_secret_keys: Vec<String>,
+    pub is_managed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportExternalMcpInput {
+    pub app_id: String,
+    pub config_path: String,
+    pub slug: String,
+    pub import_secrets_to_local: Option<bool>,
+}
+
+// ─── Plugin / Extension types ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginManifestKind {
+    AgentPlugins,
+    ClaudePlugin,
+    CodexPlugin,
+    CursorPlugin,
+    AntigravityPlugin,
+    GeminiExtension,
+    #[default]
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginInstallMode {
+    Native,
+    #[default]
+    Projected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUserConfigField {
+    pub key: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub sensitive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginComponentSummary {
+    #[serde(default)]
+    pub skills: Vec<String>,
+    #[serde(default)]
+    pub commands: Vec<String>,
+    #[serde(default)]
+    pub mcp_servers: Vec<String>,
+    #[serde(default)]
+    pub hooks: Vec<String>,
+    #[serde(default)]
+    pub agents: Vec<String>,
+    #[serde(default)]
+    pub rules: Vec<String>,
+}
+
+/// Sanitized Plugin definition persisted in `RepoLibrary` (`library.json`).
+/// Sensitive userConfig values are NEVER stored in `user_config_values`; they live in `local-secrets.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginRecord {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_url: Option<String>,
+    pub manifest_kind: PluginManifestKind,
+    #[serde(default)]
+    pub user_config_schema: Vec<PluginUserConfigField>,
+    #[serde(default)]
+    pub user_config_values: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub components: PluginComponentSummary,
+    #[serde(default)]
+    pub projected_skill_ids: Vec<String>,
+    #[serde(default)]
+    pub projected_command_ids: Vec<String>,
+    #[serde(default)]
+    pub projected_mcp_server_ids: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginDto {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    pub version: Option<String>,
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub homepage: Option<String>,
+    pub repository_url: Option<String>,
+    pub manifest_kind: PluginManifestKind,
+    pub source_dir_path: String,
+    pub user_config_schema: Vec<PluginUserConfigField>,
+    pub user_config_values: std::collections::HashMap<String, String>,
+    pub configured_secret_keys: Vec<String>,
+    pub components: PluginComponentSummary,
+    pub projected_skill_ids: Vec<String>,
+    pub projected_command_ids: Vec<String>,
+    pub projected_mcp_server_ids: Vec<String>,
+    pub tags: Vec<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPluginFromFolderInput {
+    pub folder_path: String,
+    pub project_components_to_library: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPluginFromGitInput {
+    pub repo_url: String,
+    pub sub_path: Option<String>,
+    pub branch: Option<String>,
+    pub project_components_to_library: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredPluginCandidate {
+    pub sub_path: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    pub manifest_kind: PluginManifestKind,
+    pub components: PluginComponentSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum ImportPluginOutcome {
+    #[serde(rename_all = "camelCase")]
+    Imported {
+        plugins: Vec<PluginDto>,
+        warnings: Vec<String>,
+        backup_sync: BackupSyncResult,
+    },
+    #[serde(rename_all = "camelCase")]
+    SelectPlugins {
+        staging_id: String,
+        source_label: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        marketplace_name: Option<String>,
+        candidates: Vec<DiscoveredPluginCandidate>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportStagedPluginsInput {
+    pub staging_id: String,
+    pub sub_paths: Vec<String>,
+    pub project_components_to_library: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPluginBatchResult {
+    pub plugins: Vec<PluginDto>,
+    pub warnings: Vec<String>,
+    pub backup_sync: BackupSyncResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePluginConfigInput {
+    pub plugin_id: String,
+    pub user_config_values: Option<std::collections::HashMap<String, String>>,
+    pub secret_values: Option<std::collections::HashMap<String, String>>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallPluginGlobalInput {
+    pub plugin_id: String,
+    pub apps: Vec<String>,
+    pub prefer_native: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallPluginToProjectInput {
+    pub plugin_id: String,
+    pub project_path: String,
+    pub apps: Vec<String>,
+    pub claude_mcp_mode: Option<ClaudeProjectMcpMode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallPluginResult {
+    pub installed_apps: Vec<String>,
+    pub failed_apps: Vec<String>,
+    pub app_modes: std::collections::HashMap<String, PluginInstallMode>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAppInstallStatus {
+    pub app_id: String,
+    pub installed: bool,
+    pub mode: Option<PluginInstallMode>,
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckPluginStatusInput {
+    pub plugin_id: String,
+    pub scope: String,
+    pub project_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckPluginStatusResult {
+    pub plugin_id: String,
+    pub statuses: Vec<PluginAppInstallStatus>,
 }

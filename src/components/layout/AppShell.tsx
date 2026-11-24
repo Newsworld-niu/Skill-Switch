@@ -1,8 +1,10 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import type { PageId, LibraryTab, CommandMode } from "../../App";
+import type { PageId, LibraryTab, CommandMode, McpMode } from "../../App";
 import { useSkills } from "../../context/SkillContext";
 import { useSlashCommands } from "../../context/SlashCommandContext";
-import { APP_LIST } from "../../context/AppContext";
+import { useMcp } from "../../context/McpContext";
+import { usePlugins } from "../../context/PluginContext";
+import { useApps } from "../../context/AppContext";
 import { useSettings } from "../../context/SettingsContext";
 import { useSource } from "../../context/SourceContext";
 import { useToast } from "../ui/Toast";
@@ -31,6 +33,8 @@ import {
   ExternalLink,
   ChevronRight,
   TerminalSquare,
+  Server,
+  Blocks,
 } from "lucide-react";
 import s from "./AppShell.module.css";
 
@@ -39,11 +43,13 @@ interface Props {
   activeRepoId: string | null;
   activeLibraryTab: LibraryTab;
   activeCommandMode: CommandMode;
+  activeMcpMode: McpMode;
   externalAppFilter: string | null;
   onNavigate: (page: PageId) => void;
   onNavigateRepo: (repoId: string) => void;
   onNavigateLibraryTab: (tab: LibraryTab) => void;
   onNavigateExternalApp: (appId: string) => void;
+  onNavigateMcpMode: (mode: McpMode) => void;
   onToggleCommandMode: () => void;
   children: React.ReactNode;
 }
@@ -161,16 +167,21 @@ export function AppShell({
   activeRepoId,
   activeLibraryTab,
   activeCommandMode,
+  activeMcpMode,
   externalAppFilter,
   onNavigate,
   onNavigateRepo,
   onNavigateLibraryTab,
   onNavigateExternalApp,
+  onNavigateMcpMode,
   onToggleCommandMode,
   children,
 }: Props) {
   const { skills, externalSkills } = useSkills();
   const { commands, externalCommands } = useSlashCommands();
+  const { servers: mcpServers, externalServers: externalMcpServers } = useMcp();
+  const { plugins } = usePlugins();
+  const { allApps, visibleCommandApps, visibleMcpApps } = useApps();
   const { settings, updateSettings } = useSettings();
   const { sourceStates, marketState, registryState, refresh } = useSource();
   const toast = useToast();
@@ -342,13 +353,17 @@ export function AppShell({
   // Per-app external skill counts for sidebar sub-items
   const externalAppGroups = useMemo(
     () =>
-      APP_LIST.map((app) => ({
-        appId: app.id,
-        label: app.label,
-        iconSrc: app.iconSrc,
-        count: externalSkills.filter((sk) => sk.appId === app.id).length,
-      })).filter((g) => g.count > 0),
-    [externalSkills]
+      allApps
+        .map((app) => ({
+          appId: app.id,
+          label: app.label,
+          shortLabel: app.shortLabel,
+          accentColor: app.accentColor,
+          iconSrc: app.iconSrc,
+          count: externalSkills.filter((sk) => sk.appId === app.id).length,
+        }))
+        .filter((g) => g.count > 0),
+    [allApps, externalSkills]
   );
 
   useEffect(() => {
@@ -443,11 +458,20 @@ export function AppShell({
                         className={`${s.librarySubItem} ${isSubActive ? s.librarySubItemActive : ""}`}
                         onClick={() => onNavigateExternalApp(group.appId)}
                       >
-                        <img
-                          src={group.iconSrc}
-                          alt=""
-                          className={s.librarySubItemIcon}
-                        />
+                        {group.iconSrc ? (
+                          <img
+                            src={group.iconSrc}
+                            alt=""
+                            className={s.librarySubItemIcon}
+                          />
+                        ) : (
+                          <span
+                            className={s.librarySubItemMonogram}
+                            style={{ background: group.accentColor }}
+                          >
+                            {group.shortLabel}
+                          </span>
+                        )}
                         <span className={s.librarySubItemLabel}>
                           {group.label}
                         </span>
@@ -465,7 +489,12 @@ export function AppShell({
             <div className={s.backupSection}>
               <div className={s.reposHeader}>
                 <span>Commands</span>
-                <span className={s.backupStateBadge}>仅 Claude</span>
+                <span className={s.backupStateBadge}>
+                  {visibleCommandApps.length === 1 &&
+                  visibleCommandApps[0].id === "claude"
+                    ? "仅 Claude"
+                    : `${visibleCommandApps.length} 个端`}
+                </span>
               </div>
 
               {/* 自建 Commands */}
@@ -506,6 +535,70 @@ export function AppShell({
                   {externalSlashCommandCount > 0
                     ? `${externalSlashCommandCount} 项`
                     : ""}
+                </span>
+              </button>
+            </div>
+
+            {/* ── MCP Servers section ── */}
+            <div className={s.backupSection}>
+              <div className={s.reposHeader}>
+                <span>MCP Servers</span>
+                <span className={s.backupStateBadge}>
+                  {`${visibleMcpApps.length} 个端`}
+                </span>
+              </div>
+
+              <button
+                className={`${s.libraryItem} ${activePage === "mcp-servers" && activeMcpMode === "managed" ? s.libraryItemActive : ""}`}
+                onClick={() => onNavigateMcpMode("managed")}
+              >
+                <Server size={12} className={s.libraryItemIcon} />
+                <span className={s.backupNameWrap}>
+                  <span className={s.backupName}>托管服务</span>
+                  <span className={s.backupMeta}>统一管理与安全密钥隔离</span>
+                </span>
+                <span className={s.backupRight}>
+                  {mcpServers.length > 0 ? `${mcpServers.length} 项` : ""}
+                </span>
+              </button>
+
+              <button
+                className={`${s.libraryItem} ${activePage === "mcp-servers" && activeMcpMode === "external" ? s.libraryItemActive : ""}`}
+                onClick={() => onNavigateMcpMode("external")}
+              >
+                <ExternalLink size={12} className={s.libraryItemIcon} />
+                <span className={s.backupNameWrap}>
+                  <span className={s.backupName}>外部发现</span>
+                  <span className={s.backupMeta}>各 CLI 现有未托管 MCP</span>
+                </span>
+                <span className={s.backupRight}>
+                  {externalMcpServers.length > 0
+                    ? `${externalMcpServers.length} 项`
+                    : ""}
+                </span>
+              </button>
+            </div>
+
+            {/* ── Plugins section ── */}
+            <div className={s.backupSection}>
+              <div className={s.reposHeader}>
+                <span>Plugins</span>
+                <span className={s.backupStateBadge}>复合容器</span>
+              </div>
+
+              <button
+                className={`${s.libraryItem} ${activePage === "plugins" ? s.libraryItemActive : ""}`}
+                onClick={() => onNavigate("plugins")}
+              >
+                <Blocks size={12} className={s.libraryItemIcon} />
+                <span className={s.backupNameWrap}>
+                  <span className={s.backupName}>插件包</span>
+                  <span className={s.backupMeta}>
+                    Skills + MCP 原生与跨端投射
+                  </span>
+                </span>
+                <span className={s.backupRight}>
+                  {plugins.length > 0 ? `${plugins.length} 项` : ""}
                 </span>
               </button>
             </div>

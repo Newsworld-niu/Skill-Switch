@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type CSSProperties,
+} from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, watch } from "@tauri-apps/plugin-fs";
 import {
@@ -24,14 +30,16 @@ import {
   Download,
 } from "lucide-react";
 import { useSkills } from "../context/SkillContext";
-import { APP_LIST } from "../context/AppContext";
+import {
+  useApps,
+  type TargetAppMeta,
+  type ProjectSkillTargetGroup,
+} from "../context/AppContext";
 import { useToast } from "../components/ui/Toast";
 import {
   skillInstallToProject,
   skillUninstallFromProject,
-  projectRemoveCliFolders,
-  skillInstallGlobal,
-  skillUninstallGlobal,
+  skillCheckSymlinkStatus,
   skillImportFromDialog,
   skillImportFromFolder,
   skillExportToZip,
@@ -77,6 +85,34 @@ function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString("zh-CN");
 }
 
+function getCompactAppName(app: TargetAppMeta): string {
+  switch (app.id) {
+    case "claude":
+      return "Claude";
+    case "codex":
+      return "Codex";
+    case "cursor":
+      return "Cursor";
+    case "antigravity":
+      return "反重力";
+    case "t3":
+      return "T3";
+    default:
+      return app.label.length > 8 ? app.label.slice(0, 7) + "…" : app.label;
+  }
+}
+
+function AppIcon({ app }: { app: TargetAppMeta }) {
+  if (app.iconSrc) {
+    return <img src={app.iconSrc} alt="" className={s.appMiniIcon} />;
+  }
+  return (
+    <span className={s.appMiniMonogram} style={{ background: app.accentColor }}>
+      {app.shortLabel}
+    </span>
+  );
+}
+
 // Get provenance badge label
 function getProvenanceBadge(provenance?: Provenance): string {
   if (!provenance) return "";
@@ -93,13 +129,13 @@ function getProvenanceBadge(provenance?: Provenance): string {
       return provenance.sourceName
         ? `仓库源 · ${provenance.sourceName}`
         : "仓库源导入";
+    case "plugin":
+      return provenance.sourceName
+        ? `插件 · ${provenance.sourceName}`
+        : provenance.label || "插件投射";
     default:
       return "";
   }
-}
-
-function getAppMeta(appId: string) {
-  return APP_LIST.find((app) => app.id === appId) ?? null;
 }
 
 interface ExternalImportPreviewState {
@@ -116,15 +152,22 @@ interface ExternalImportPreviewState {
 function SkillCard({
   skill,
   selected,
+  enabledAppIds,
+  visibleApps,
+  onToggleApp,
   onClick,
 }: {
   skill: Skill;
   selected: boolean;
+  enabledAppIds: string[];
+  visibleApps: TargetAppMeta[];
+  onToggleApp: (appId: string) => void;
   onClick: () => void;
 }) {
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
   const badge = getProvenanceBadge(skill.provenance);
+  const enabledSet = new Set(enabledAppIds);
 
   return (
     <div
@@ -153,6 +196,44 @@ function SkillCard({
           <p className={s.cardDesc}>{skill.description || "无描述"}</p>
           <div className={s.cardFooter}>
             <span className={s.cardSlug}>{skill.slug}</span>
+            {visibleApps.length > 0 && (
+              <div className={s.cardAppPills}>
+                {visibleApps.map((app) => {
+                  const active = enabledSet.has(app.id);
+                  const pillStyle = {
+                    "--pill-accent": app.accentColor,
+                  } as CSSProperties;
+                  return (
+                    <button
+                      key={app.id}
+                      type="button"
+                      className={`${s.cardAppPill} ${active ? s.cardAppPillActive : ""}`}
+                      style={pillStyle}
+                      title={
+                        active
+                          ? `已在全局 ${app.label} 启用（点击关闭）`
+                          : `点击在全局 ${app.label} 启用 (${app.skillPathLabel})`
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleApp(app.id);
+                      }}
+                    >
+                      {app.iconSrc ? (
+                        <img
+                          src={app.iconSrc}
+                          alt=""
+                          className={s.cardAppPillIcon}
+                        />
+                      ) : (
+                        <span className={s.cardAppPillDot} />
+                      )}
+                      <span>{getCompactAppName(app)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -231,6 +312,7 @@ function ExternalDetailPanel({
   skill: ExternalSkill;
   onImport: () => void;
 }) {
+  const { getAppMeta } = useApps();
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
   const appMeta = getAppMeta(skill.appId);
@@ -293,17 +375,7 @@ function ExternalDetailPanel({
             <div className={s.externalDetailRow}>
               <span className={s.externalDetailLabel}>来源</span>
               <span className={s.externalDetailValue}>
-                <img
-                  src={appMeta.iconSrc}
-                  alt=""
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: 3,
-                    verticalAlign: -2,
-                  }}
-                />{" "}
-                {appMeta.label}
+                <AppIcon app={appMeta} /> {appMeta.label}
               </span>
             </div>
           )}
@@ -441,12 +513,12 @@ function DirectoryBrowser({
   );
 
   useEffect(() => {
-    loadDirectory("");
+    void loadDirectory("");
   }, [loadDirectory]);
 
   const handleEntryClick = (entry: SkillDirectoryEntry) => {
     if (entry.kind === "directory") {
-      loadDirectory(entry.path);
+      void loadDirectory(entry.path);
     } else {
       onOpenFile(entry.path);
     }
@@ -454,12 +526,12 @@ function DirectoryBrowser({
 
   const handleBackToParent = () => {
     if (listing?.parentPath !== undefined) {
-      loadDirectory(listing.parentPath || "");
+      void loadDirectory(listing.parentPath || "");
     }
   };
 
   const handlePathClick = (path: string) => {
-    loadDirectory(path);
+    void loadDirectory(path);
   };
 
   if (loading) {
@@ -486,7 +558,6 @@ function DirectoryBrowser({
 
   if (!listing) return null;
 
-  // Build path segments for breadcrumb
   const pathSegments = currentPath.split("/").filter(Boolean);
 
   return (
@@ -581,7 +652,7 @@ function FilePreview({
       }
       setLoading(false);
     };
-    loadFile();
+    void loadFile();
   }, [skill.id, filePath]);
 
   const fileName = filePath.split("/").pop() || filePath;
@@ -618,6 +689,9 @@ function DetailPanel({
   onExport: () => void;
   onSyncFromSource: (id: string) => void;
 }) {
+  const { visibleSkillApps, projectSkillGroups, allApps } = useApps();
+  const { globalEnabledBySkill, toggleSkillGlobalApp, refreshGlobalStatuses } =
+    useSkills();
   const [tab, setTab] = useState<Tab>("enable");
   const [previewingFile, setPreviewingFile] = useState<string | null>(null);
   const iconColors = getIconColors(skill.name);
@@ -626,6 +700,15 @@ function DetailPanel({
   const [skillmdContent, setSkillmdContent] = useState(skill.content ?? "");
   const [skillmdLoading, setSkillmdLoading] = useState(false);
   const [skillmdError, setSkillmdError] = useState<string | null>(null);
+
+  const enabledGlobalSet = new Set(globalEnabledBySkill[skill.id] ?? []);
+
+  // Refresh global statuses from real disk symlinks on skill switch / tab switch
+  useEffect(() => {
+    if (tab === "enable") {
+      void refreshGlobalStatuses();
+    }
+  }, [refreshGlobalStatuses, skill.id, tab]);
 
   // Read SKILL.md fresh from disk on skill switch, then poll for external edits
   useEffect(() => {
@@ -642,7 +725,6 @@ function DetailPanel({
       if (disposed) return;
       if (result.ok) {
         const newContent = result.value;
-        // Detect external edit: content changed since last read → sync metadata
         if (prevContent !== null && prevContent !== newContent) {
           void onSyncFromSource(skill.id);
         }
@@ -669,7 +751,6 @@ function DetailPanel({
       void readContent();
     });
 
-    // Poll every 2s so external edits (Typora saves, etc.) sync in real time
     const timer = setInterval(readContent, 2000);
 
     return () => {
@@ -678,33 +759,7 @@ function DetailPanel({
     };
   }, [skill.id, onSyncFromSource]);
 
-  // Global app enable states — persisted per skillId in localStorage
-  const globalStorageKey = `skill-global-${skill.id}`;
-  const [globalApps, setGlobalAppsRaw] = useState<Record<string, boolean>>(
-    () => {
-      try {
-        const stored = localStorage.getItem(globalStorageKey);
-        if (stored) return JSON.parse(stored) as Record<string, boolean>;
-      } catch {}
-      return Object.fromEntries(APP_LIST.map((a) => [a.id, false]));
-    }
-  );
-
-  const setGlobalApps = (
-    updater:
-      | Record<string, boolean>
-      | ((prev: Record<string, boolean>) => Record<string, boolean>)
-  ) => {
-    setGlobalAppsRaw((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try {
-        localStorage.setItem(globalStorageKey, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  };
-
-  // Project-level enable states — persisted per skillId in localStorage
+  // Project-level list persisted per skillId, with real-time symlink status hydrated from disk
   const storageKey = `skill-projects-${skill.id}`;
   const [projectEnables, setProjectEnablesRaw] = useState<ProjectEnableState[]>(
     () => {
@@ -716,19 +771,59 @@ function DetailPanel({
     }
   );
 
-  const setProjectEnables = (
-    updater:
-      | ProjectEnableState[]
-      | ((prev: ProjectEnableState[]) => ProjectEnableState[])
-  ) => {
-    setProjectEnablesRaw((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  };
+  const setProjectEnables = useCallback(
+    (
+      updater:
+        | ProjectEnableState[]
+        | ((prev: ProjectEnableState[]) => ProjectEnableState[])
+    ) => {
+      setProjectEnablesRaw((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    },
+    [storageKey]
+  );
+
+  const syncProjectDiskStatuses = useCallback(
+    async (projects: ProjectEnableState[]) => {
+      if (projects.length === 0) return;
+      const checks = await Promise.all(
+        projects.map((proj) =>
+          skillCheckSymlinkStatus({
+            skillId: skill.id,
+            scope: "project",
+            projectPath: proj.projectPath,
+          })
+        )
+      );
+
+      setProjectEnables((prev) =>
+        prev.map((proj) => {
+          const idx = projects.findIndex((p) => p.projectId === proj.projectId);
+          const check = idx >= 0 ? checks[idx] : null;
+          if (!check || !check.ok) return proj;
+          const nextApps: Record<string, boolean> = {};
+          for (const st of check.value.statuses) {
+            nextApps[st.appId] = st.exists;
+          }
+          return { ...proj, apps: nextApps };
+        })
+      );
+    },
+    [setProjectEnables, skill.id]
+  );
+
+  useEffect(() => {
+    if (tab === "enable" && projectEnables.length > 0) {
+      void syncProjectDiskStatuses(projectEnables);
+    }
+    // Only trigger when switching skill or returning to enable tab
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skill.id, tab]);
 
   useEffect(() => {
     setTab("enable");
@@ -736,111 +831,74 @@ function DetailPanel({
   }, [skill.id]);
 
   const handleTabChange = (nextTab: Tab) => {
-    if (nextTab === tab) {
-      return;
-    }
-
+    if (nextTab === tab) return;
     setTab(nextTab);
   };
 
-  const toggleGlobalApp = async (appId: string) => {
-    const currentState = globalApps[appId] ?? false;
-    const newState = !currentState;
-
-    // Optimistically update UI
-    setGlobalApps((prev) => ({ ...prev, [appId]: newState }));
-
-    const appLabel = APP_LIST.find((a) => a.id === appId)?.label ?? appId;
-    const tid = newState
-      ? toast.loading(`正在写入全局 ${appLabel}…`)
-      : toast.loading(`正在移除全局 ${appLabel}…`);
-
-    if (newState) {
-      const result = await skillInstallGlobal({
-        skillId: skill.id,
-        apps: [appId],
-      });
-      if (result.ok) {
-        toast.resolve(tid, "success", `已将 Skill 写入全局 ${appLabel}`);
-      } else {
-        toast.resolve(tid, "error", `写入失败：${result.error}`);
-        setGlobalApps((prev) => ({ ...prev, [appId]: currentState }));
-      }
-    } else {
-      const result = await skillUninstallGlobal({
-        skillId: skill.id,
-        apps: [appId],
-      });
-      if (result.ok) {
-        toast.resolve(tid, "success", `已从全局 ${appLabel} 移除 Skill`);
-      } else {
-        toast.resolve(tid, "error", `移除失败：${result.error}`);
-        setGlobalApps((prev) => ({ ...prev, [appId]: currentState }));
-      }
-    }
-  };
-
-  const toggleProjectApp = async (projectIdx: number, appId: string) => {
-    const currentState = projectEnables[projectIdx]?.apps[appId] ?? false;
-    const newState = !currentState;
+  const toggleProjectGroup = async (
+    projectIdx: number,
+    group: ProjectSkillTargetGroup
+  ) => {
     const project = projectEnables[projectIdx];
     if (!project) return;
 
-    // Optimistically update UI
+    const groupAppIds = group.apps.map((a) => a.id);
+    const currentState = groupAppIds.some((id) => !!project.apps[id]);
+    const newState = !currentState;
+
+    // Optimistically update all apps in this shared path group
     setProjectEnables((prev) =>
-      prev.map((p, i) =>
-        i !== projectIdx ? p : { ...p, apps: { ...p.apps, [appId]: newState } }
-      )
+      prev.map((p, i) => {
+        if (i !== projectIdx) return p;
+        const nextApps = { ...p.apps };
+        for (const id of groupAppIds) {
+          nextApps[id] = newState;
+        }
+        return { ...p, apps: nextApps };
+      })
     );
 
-    const appLabel = APP_LIST.find((a) => a.id === appId)?.label ?? appId;
     const tid = newState
-      ? toast.loading(`正在写入 ${appLabel}…`)
-      : toast.loading(`正在移除 ${appLabel}…`);
+      ? toast.loading(`正在写入 ${group.combinedLabel}…`)
+      : toast.loading(`正在移除 ${group.combinedLabel}…`);
 
     if (newState) {
+      // One symlink writes the target directory for the whole shared group
       const result = await skillInstallToProject({
         skillId: skill.id,
         projectPath: project.projectPath,
-        apps: [appId],
+        apps: [groupAppIds[0]],
       });
-      if (result.ok) {
+      if (result.ok && result.value.installedApps.length > 0) {
         toast.resolve(
           tid,
           "success",
-          `已将 Skill 写入 ${project.projectName} / ${appLabel}`
+          `已将 Skill 写入 ${project.projectName} / ${group.combinedLabel}`
         );
       } else {
-        toast.resolve(tid, "error", `写入失败：${result.error}`);
-        setProjectEnables((prev) =>
-          prev.map((p, i) =>
-            i !== projectIdx
-              ? p
-              : { ...p, apps: { ...p.apps, [appId]: currentState } }
-          )
+        toast.resolve(
+          tid,
+          "error",
+          `写入失败：${!result.ok ? result.error : group.combinedLabel}`
         );
+        void syncProjectDiskStatuses([project]);
       }
     } else {
+      // Remove across all aliases in the group (e.g. .agents/skills + .agent/skills)
       const result = await skillUninstallFromProject({
         skillId: skill.id,
         projectPath: project.projectPath,
-        apps: [appId],
+        apps: groupAppIds,
       });
       if (result.ok) {
         toast.resolve(
           tid,
           "success",
-          `已从 ${project.projectName} / ${appLabel} 移除 Skill`
+          `已从 ${project.projectName} / ${group.combinedLabel} 移除 Skill`
         );
       } else {
         toast.resolve(tid, "error", `移除失败：${result.error}`);
-        setProjectEnables((prev) =>
-          prev.map((p, i) =>
-            i !== projectIdx
-              ? p
-              : { ...p, apps: { ...p.apps, [appId]: currentState } }
-          )
-        );
+        void syncProjectDiskStatuses([project]);
       }
     }
   };
@@ -849,23 +907,29 @@ function DetailPanel({
     const project = projectEnables[projectIdx];
     if (!project) return;
 
-    const tid = toast.loading(
-      `正在清理 ${project.projectName} 中的 Skill 文件…`
-    );
-    const allApps = APP_LIST.map((a) => a.id);
-    const result = await projectRemoveCliFolders({
-      projectPath: project.projectPath,
-      apps: allApps,
-    });
+    const enabledApps = Object.entries(project.apps)
+      .filter(([, enabled]) => enabled)
+      .map(([id]) => id);
 
-    if (result.ok) {
-      toast.resolve(
-        tid,
-        "success",
-        `已清理 ${project.projectName} 中的 Skill 文件`
+    if (enabledApps.length > 0) {
+      const tid = toast.loading(
+        `正在移除 ${project.projectName} 中的此 Skill 软链接…`
       );
-    } else {
-      toast.resolve(tid, "error", `清理失败：${result.error}`);
+      const result = await skillUninstallFromProject({
+        skillId: skill.id,
+        projectPath: project.projectPath,
+        apps: enabledApps,
+      });
+
+      if (result.ok) {
+        toast.resolve(
+          tid,
+          "success",
+          `已从 ${project.projectName} 移除此 Skill`
+        );
+      } else {
+        toast.resolve(tid, "error", `移除失败：${result.error}`);
+      }
     }
     setProjectEnables((prev) => prev.filter((_, i) => i !== projectIdx));
   };
@@ -879,14 +943,31 @@ function DetailPanel({
       });
       if (selected) {
         const path = selected as string;
+        if (projectEnables.some((p) => p.projectPath === path)) {
+          toast.info("该项目已在列表中");
+          return;
+        }
         const folderName = path.split(/[/\\]/).pop() || "未命名项目";
+        const check = await skillCheckSymlinkStatus({
+          skillId: skill.id,
+          scope: "project",
+          projectPath: path,
+        });
+        const initialApps: Record<string, boolean> = Object.fromEntries(
+          allApps.map((a) => [a.id, false])
+        );
+        if (check.ok) {
+          for (const st of check.value.statuses) {
+            initialApps[st.appId] = st.exists;
+          }
+        }
         setProjectEnables((prev) => [
           ...prev,
           {
             projectId: `project-${Date.now()}`,
             projectName: folderName,
             projectPath: path,
-            apps: Object.fromEntries(APP_LIST.map((a) => [a.id, false])),
+            apps: initialApps,
           },
         ]);
         toast.success(`已添加项目「${folderName}」`);
@@ -979,17 +1060,20 @@ function DetailPanel({
             <div className={s.enableSection}>
               <div className={s.enableSectionLabel}>
                 <Globe size={14} /> 全局级别{" "}
-                <span className={s.enableSectionHint}>(所有项目生效)</span>
+                <span className={s.enableSectionHint}>
+                  (所有项目生效 · 各客户端完全独立)
+                </span>
               </div>
               <div className={s.globalApps}>
-                {APP_LIST.map((a) => (
+                {visibleSkillApps.map((a) => (
                   <label key={a.id} className={s.globalAppItem}>
                     <input
                       type="checkbox"
-                      checked={!!globalApps[a.id]}
-                      onChange={() => toggleGlobalApp(a.id)}
+                      checked={enabledGlobalSet.has(a.id)}
+                      onChange={() => void toggleSkillGlobalApp(skill.id, a.id)}
                       style={{ accentColor: a.accentColor }}
                     />
+                    <AppIcon app={a} />
                     <div>
                       <div className={s.globalAppName}>{a.label}</div>
                       <div className={s.globalAppPath}>{a.skillPathLabel}</div>
@@ -1003,7 +1087,9 @@ function DetailPanel({
             <div className={s.enableSection}>
               <div className={s.enableSectionLabel}>
                 <Folder size={14} /> 项目级别{" "}
-                <span className={s.enableSectionHint}>(仅特定项目生效)</span>
+                <span className={s.enableSectionHint}>
+                  (仅特定项目生效 · 同目录客户端自动合并防误删)
+                </span>
                 <button className={s.addProjectBtn} onClick={addProjectEnable}>
                   <Plus size={14} /> 添加项目
                 </button>
@@ -1025,23 +1111,52 @@ function DetailPanel({
                         variant="danger"
                         size="sm"
                         className={s.removeProjectBtn}
-                        onClick={() => removeProjectEnable(idx)}
+                        onClick={() => void removeProjectEnable(idx)}
                         aria-label={`移除项目 ${proj.projectName}`}
                         title="移除项目"
                       />
                     </div>
                     <div className={s.projectApps}>
-                      {APP_LIST.map((a) => (
-                        <label key={a.id} className={s.projectAppItem}>
-                          <input
-                            type="checkbox"
-                            checked={!!proj.apps[a.id]}
-                            onChange={() => toggleProjectApp(idx, a.id)}
-                            style={{ accentColor: a.accentColor }}
-                          />
-                          <span>{a.label}</span>
-                        </label>
-                      ))}
+                      {projectSkillGroups.map((group) => {
+                        const checked = group.apps.some(
+                          (a) => !!proj.apps[a.id]
+                        );
+                        return (
+                          <label
+                            key={group.groupKey}
+                            className={s.projectAppItem}
+                            title={
+                              group.isShared
+                                ? `${group.combinedLabel} 在项目级共用 ${group.relPathLabel} 目录，联动开关以防误删`
+                                : `${group.combinedLabel} (${group.relPathLabel})`
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                void toggleProjectGroup(idx, group)
+                              }
+                              style={{ accentColor: group.accentColor }}
+                            />
+                            <div className={s.projectAppMeta}>
+                              <span>
+                                {group.combinedLabel}
+                                {group.isShared && (
+                                  <span className={s.sharedPathBadge}>
+                                    共用 {group.relPathLabel}
+                                  </span>
+                                )}
+                              </span>
+                              {!group.isShared && (
+                                <span className={s.projectAppSub}>
+                                  {group.relPathLabel}
+                                </span>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -1065,7 +1180,7 @@ function DetailPanel({
               <div className={s.skillmdActions}>
                 <button
                   className={`${s.skillmdActionBtn} ${s.skillmdActionPrimary}`}
-                  onClick={() => openWithTypora(skill.id)}
+                  onClick={() => void openWithTypora(skill.id)}
                 >
                   用Typora打开
                 </button>
@@ -1126,7 +1241,6 @@ function LoadingSkeleton() {
   );
 }
 
-// ── Import Modal ────────────────────────────────────────────────────────────
 // ── Main InstalledPage ───────────────────────────────────────────────────────
 export function MyLibraryPage({
   onNavigate,
@@ -1140,6 +1254,9 @@ export function MyLibraryPage({
   const {
     skills,
     externalSkills,
+    globalEnabledBySkill,
+    toggleSkillGlobalApp,
+    autoEnableDefaultApps,
     loading,
     error,
     search,
@@ -1147,6 +1264,7 @@ export function MyLibraryPage({
     refresh,
     syncFromSource,
   } = useSkills();
+  const { visibleSkillApps, getAppMeta } = useApps();
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(
@@ -1171,7 +1289,7 @@ export function MyLibraryPage({
       clearTimeout(searchTimeoutRef.current);
     }
     searchTimeoutRef.current = setTimeout(() => {
-      search(searchQuery);
+      void search(searchQuery);
     }, 300);
     return () => {
       if (searchTimeoutRef.current) {
@@ -1236,9 +1354,7 @@ export function MyLibraryPage({
   }, [selectedSkill, toast]);
 
   const handleImport = useCallback(async () => {
-    if (importing) {
-      return;
-    }
+    if (importing) return;
 
     setImporting(true);
     const tid = toast.loading("请选择 Skill 文件夹或 ZIP 包...");
@@ -1256,15 +1372,24 @@ export function MyLibraryPage({
         return;
       }
 
-      toast.resolve(tid, "success", `「${result.value.name}」导入成功`);
       await refresh();
+      const enabledIds = await autoEnableDefaultApps(result.value.id);
+      const suffix =
+        enabledIds.length > 0
+          ? `（已自动启用到 ${enabledIds.map((id) => getAppMeta(id)?.label ?? id).join(", ")}）`
+          : "";
+      toast.resolve(
+        tid,
+        "success",
+        `「${result.value.name}」导入成功${suffix}`
+      );
       setSelectedId(result.value.id);
     } catch (error) {
       toast.resolve(tid, "error", `导入失败：${String(error)}`);
     } finally {
       setImporting(false);
     }
-  }, [importing, refresh, toast]);
+  }, [autoEnableDefaultApps, getAppMeta, importing, refresh, toast]);
 
   // Import external skill from app directory
   const handleImportExternal = useCallback(
@@ -1276,18 +1401,19 @@ export function MyLibraryPage({
       setImporting(false);
 
       if (result.ok) {
+        await refresh();
+        await autoEnableDefaultApps(result.value.id);
         toast.resolve(
           tid,
           "success",
           `「${result.value.name}」已导入 SkillSwitch`
         );
-        refresh();
         setSelectedId(result.value.id);
       } else {
         toast.resolve(tid, "error", result.error);
       }
     },
-    [refresh, toast]
+    [autoEnableDefaultApps, refresh, toast]
   );
 
   const handlePreviewExternalImport = useCallback(
@@ -1327,7 +1453,6 @@ export function MyLibraryPage({
     [skills, toast]
   );
 
-  // Separate self-created and external skills
   const filteredSkills = searchQuery.trim()
     ? skills.filter(
         (s) =>
@@ -1339,7 +1464,6 @@ export function MyLibraryPage({
 
   const filteredSelfCreated = filteredSkills;
 
-  // Apply externalAppFilter first, then search query
   const appFilteredExternal = externalAppFilter
     ? externalSkills.filter((skill) => skill.appId === externalAppFilter)
     : externalSkills;
@@ -1444,9 +1568,7 @@ export function MyLibraryPage({
 
     void (async () => {
       const sourceDirResult = await skillGetSourceDirPath(selectedSkillId);
-      if (disposed) {
-        return;
-      }
+      if (disposed) return;
 
       if (!sourceDirResult.ok) {
         console.warn(
@@ -1481,10 +1603,7 @@ export function MyLibraryPage({
 
   const handleSelectManagedSkill = useCallback(
     (skillId: string) => {
-      if (skillId === selectedId) {
-        return;
-      }
-
+      if (skillId === selectedId) return;
       setSelectedId(skillId);
     },
     [selectedId]
@@ -1507,6 +1626,9 @@ export function MyLibraryPage({
           key={skill.id}
           skill={skill}
           selected={selectedId === skill.id}
+          enabledAppIds={globalEnabledBySkill[skill.id] ?? []}
+          visibleApps={visibleSkillApps}
+          onToggleApp={(appId) => void toggleSkillGlobalApp(skill.id, appId)}
           onClick={() => handleSelectManagedSkill(skill.id)}
         />
       ));
@@ -1515,7 +1637,7 @@ export function MyLibraryPage({
     if (!externalAppFilter) {
       return (
         <div className={s.empty}>
-          从左侧二级列表选择一个 CLI 来源后，这里会显示对应的外部 Skills。
+          从左侧二级列表选择一个来源后，这里会显示对应的外部 Skills。
         </div>
       );
     }
@@ -1538,7 +1660,7 @@ export function MyLibraryPage({
           skill={skill}
           selected={selectedExternalKey === key}
           onClick={() => setSelectedExternalKey(key)}
-          onImport={() => handlePreviewExternalImport(skill)}
+          onImport={() => void handlePreviewExternalImport(skill)}
         />
       );
     });
@@ -1626,7 +1748,9 @@ export function MyLibraryPage({
             <ExternalDetailPanel
               key={`${selectedExternal.appId}:${selectedExternal.slug}`}
               skill={selectedExternal}
-              onImport={() => handlePreviewExternalImport(selectedExternal)}
+              onImport={() =>
+                void handlePreviewExternalImport(selectedExternal)
+              }
             />
           )}
         {!selectedSkill &&
@@ -1638,7 +1762,7 @@ export function MyLibraryPage({
               </div>
               <div className={s.detailPlaceholderTitle}>外部 Skills</div>
               <div className={s.detailPlaceholderHint}>
-                从左侧二级列表选择一个 CLI 来源，再查看并导入该目录下发现的外部
+                从左侧二级列表选择一个来源，再查看并导入该目录下发现的外部
                 Skill。
               </div>
             </div>
@@ -1673,6 +1797,7 @@ function ExternalImportPreviewModal({
   onClose: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
+  const { getAppMeta } = useApps();
   const appMeta = getAppMeta(preview.skill.appId);
 
   return (
