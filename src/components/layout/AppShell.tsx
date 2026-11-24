@@ -36,6 +36,8 @@ import {
   Server,
   Blocks,
 } from "lucide-react";
+import { BackupSyncIndicator } from "./BackupSyncIndicator";
+import { useConfirm } from "../ui/ConfirmDialog";
 import s from "./AppShell.module.css";
 
 interface Props {
@@ -113,7 +115,7 @@ function AddRepoModal({
   };
 
   return (
-    <div className={s.modalOverlay} onClick={onClose}>
+    <div className={s.modalOverlay} data-modal-overlay onClick={onClose}>
       <div className={s.modal} onClick={(e) => e.stopPropagation()}>
         <div className={s.modalHeader}>
           <span className={s.modalTitle}>添加仓库源</span>
@@ -185,6 +187,7 @@ export function AppShell({
   const { settings, updateSettings } = useSettings();
   const { sourceStates, marketState, registryState, refresh } = useSource();
   const toast = useToast();
+  const confirm = useConfirm();
   const [showAddModal, setShowAddModal] = useState(false);
   const [repoSyncing, setRepoSyncing] = useState<string | null>(null);
   const [repoDeleting, setRepoDeleting] = useState<string | null>(null);
@@ -313,9 +316,12 @@ export function AppShell({
 
   const handleDeleteRepo = useCallback(
     async (repo: ThirdPartyRepo) => {
-      const confirmed = window.confirm(
-        `删除仓库源「${repo.label}」？这会移除本地克隆。`
-      );
+      const confirmed = await confirm({
+        title: `删除仓库源「${repo.label}」？`,
+        message: "会移除该仓库的本地克隆；已导入到技能库的条目不受影响。",
+        confirmLabel: "删除",
+        danger: true,
+      });
       if (!confirmed) {
         return;
       }
@@ -342,7 +348,15 @@ export function AppShell({
       }
       toast.success("仓库源已删除，并移除了本地克隆");
     },
-    [activePage, activeRepoId, onNavigate, repos, toast, updateSettings]
+    [
+      activePage,
+      activeRepoId,
+      confirm,
+      onNavigate,
+      repos,
+      toast,
+      updateSettings,
+    ]
   );
 
   const selfCreatedCount = skills.length;
@@ -824,6 +838,12 @@ export function AppShell({
 
         {/* Settings - fixed at bottom */}
         <div className={s.settingsWrap}>
+          {backupSource && (
+            <BackupSyncIndicator
+              persistedLastSyncedAt={backupSource.lastSyncedAt}
+              persistedLastError={backupSource.lastError}
+            />
+          )}
           <button
             className={`${s.settingsBtn} ${activePage === "settings" ? s.settingsBtnActive : ""}`}
             onClick={() => onNavigate("settings")}

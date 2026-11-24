@@ -365,10 +365,30 @@ export interface CreateSlashCommandInput {
 }
 
 export interface BackupSyncResult {
-  status: "skipped" | "success" | "failed";
+  status: "skipped" | "queued" | "failed";
   attempts: number;
   message?: string | null;
   lastError?: string | null;
+}
+
+export interface LibraryExportResult {
+  path: string;
+  skillCount: number;
+  commandCount: number;
+}
+
+export interface LibraryImportResult {
+  importedSkills: string[];
+  importedCommands: string[];
+  /** "<folder>：<reason>" for every item that was not imported. */
+  skipped: string[];
+}
+
+/** Live state of the background backup push worker. */
+export interface BackupSyncState {
+  status: "idle" | "syncing" | "synced" | "failed";
+  lastError?: string | null;
+  lastSyncedAt?: number | null;
 }
 
 export interface CreateSkillResult {
@@ -605,6 +625,10 @@ export interface AppSettings {
   customApps: CustomAppConfig[];
   hiddenAppIds: string[];
   defaultInstallAppIds: string[];
+  /** Editor for "open in editor"; empty/null opens with the system default app. */
+  externalEditor?: string | null;
+  /** User chose local-only mode on first launch instead of connecting a backup repo. */
+  backupSetupSkipped?: boolean;
 }
 
 // ─── Third-party repo source types ────────────────────────────────────────────

@@ -1234,13 +1234,15 @@ pub fn import_plugin_from_dialog(
         let folder_path = folder
             .into_path()
             .map_err(|e| format!("读取插件目录路径失败: {}", e))?;
-        return import_plugin_from_folder(
-            app,
-            &ImportPluginFromFolderInput {
-                folder_path: folder_path.to_string_lossy().into_owned(),
-                project_components_to_library: Some(true),
-            },
-        )
+        return store::with_mutation_lock(|| {
+            import_plugin_from_folder(
+                app,
+                &ImportPluginFromFolderInput {
+                    folder_path: folder_path.to_string_lossy().into_owned(),
+                    project_components_to_library: Some(true),
+                },
+            )
+        })
         .map(Some);
     }
     Ok(None)

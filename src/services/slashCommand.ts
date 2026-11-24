@@ -199,10 +199,10 @@ export async function slashCommandGetSourceDirPath(
   return tauriInvoke<string>("slash_command_source_dir_path", { commandId });
 }
 
-export async function openSlashCommandWithTypora(
+export async function openSlashCommandInEditor(
   commandId: string
 ): Promise<Result<void>> {
-  return tauriInvoke<void>("open_slash_command_with_typora", { commandId });
+  return tauriInvoke<void>("slash_command_open_in_editor", { commandId });
 }
 
 export async function slashCommandSyncFromSource(

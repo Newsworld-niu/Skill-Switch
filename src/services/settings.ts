@@ -46,6 +46,8 @@ const defaultSettings: AppSettings = {
   customApps: [],
   hiddenAppIds: [],
   defaultInstallAppIds: [],
+  externalEditor: null,
+  backupSetupSkipped: false,
 };
 
 function normalizeBackupSource(
@@ -110,3 +112,13 @@ export async function settingsSet(
 }
 
 export { defaultSettings };
+
+/** Whether a GitHub token is stored in the machine-local secrets file. */
+export async function githubTokenConfigured(): Promise<Result<boolean>> {
+  return tauriInvoke<boolean>("github_token_configured");
+}
+
+/** Stores a GitHub token locally (never synced); an empty string removes it. */
+export async function githubTokenSet(token: string): Promise<Result<void>> {
+  return tauriInvoke<void>("github_token_set", { token });
+}

@@ -1833,3 +1833,32 @@
   color: var(--text);
   background: transparent;
 }
+
+/* ── Static styles moved out of inline style props ── */
+.externalDetailPath {
+  font-size: var(--text-xs);
+  word-break: break-all;
+}
+
+.cardClickable,
+.cardBadgeLink {
+  cursor: pointer;
+}
+
+.filePreviewError {
+  color: var(--error);
+}
+
+.commandModal {
+  width: 720px;
+}
+
+.modalLabelSpaced {
+  margin-top: var(--space-3);
+}
+
+.commandModalEditor {
+  min-height: 240px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}

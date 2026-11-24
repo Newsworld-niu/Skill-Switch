@@ -6,30 +6,46 @@ import s from "./BackupSetupModal.module.css";
 
 interface Props {
   onConnected: (status: BackupSourceStatus) => void;
+  /** Continue in local-only mode; the repo can be connected later in Settings. */
+  onSkip: () => void;
 }
 
-export function BackupSetupModal({ onConnected }: Props) {
+export function BackupSetupModal({ onConnected, onSkip }: Props) {
   const [remoteUrl, setRemoteUrl] = useState("");
   const [branch, setBranch] = useState("main");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const getErrorHint = (err: string): string => {
     if (err.includes("git is not available")) return "请先安装 Git 命令行工具";
-    if (err.includes("无法访问远程仓库")) return "请检查仓库地址、网络连接，并确保 SSH key 或 Git 凭据已正确配置";
-    if (err.includes("认证") || err.includes("auth") || err.includes("permission")) return "认证失败，请确认 SSH agent 已启动或 Git credential helper 已配置";
+    if (err.includes("无法访问远程仓库"))
+      return "请检查仓库地址、网络连接，并确保 SSH key 或 Git 凭据已正确配置";
+    if (
+      err.includes("认证") ||
+      err.includes("auth") ||
+      err.includes("permission")
+    )
+      return "认证失败，请确认 SSH agent 已启动或 Git credential helper 已配置";
     return err;
   };
 
   const handleConnect = async () => {
     const trimmed = remoteUrl.trim();
-    if (!trimmed) { setError("请输入仓库地址"); return; }
+    if (!trimmed) {
+      setError("请输入仓库地址");
+      return;
+    }
     setLoading(true);
     setError(null);
-    const result = await backupSourceBootstrap({ remoteUrl: trimmed, branch: branch.trim() || undefined });
+    const result = await backupSourceBootstrap({
+      remoteUrl: trimmed,
+      branch: branch.trim() || undefined,
+    });
     setLoading(false);
     if (result.ok) {
       onConnected(result.value);
@@ -46,7 +62,8 @@ export function BackupSetupModal({ onConnected }: Props) {
           <h2 className={s.title}>配置技能仓库</h2>
         </div>
         <p className={s.description}>
-          SkillSwitch 使用 GitHub 仓库作为技能主存储。请输入仓库地址以开始。
+          SkillSwitch 可以把技能库备份到一个 Git
+          仓库，每次修改后自动推送，便于多台设备同步。也可以先仅在本地使用，之后在设置中连接。
         </p>
         <div className={s.form}>
           <label className={s.label}>仓库地址</label>
@@ -54,21 +71,25 @@ export function BackupSetupModal({ onConnected }: Props) {
             ref={inputRef}
             className={s.input}
             value={remoteUrl}
-            onChange={e => { setRemoteUrl(e.target.value); setError(null); }}
+            onChange={(e) => {
+              setRemoteUrl(e.target.value);
+              setError(null);
+            }}
             placeholder="git@github.com:user/skills.git 或 https://github.com/user/skills.git"
-            onKeyDown={e => e.key === "Enter" && handleConnect()}
+            onKeyDown={(e) => e.key === "Enter" && handleConnect()}
             disabled={loading}
           />
           <label className={s.label}>分支</label>
           <input
             className={s.input}
             value={branch}
-            onChange={e => setBranch(e.target.value)}
+            onChange={(e) => setBranch(e.target.value)}
             placeholder="main"
             disabled={loading}
           />
           <p className={s.hint}>
-            支持 SSH 和 HTTPS。认证依赖系统已配置的 SSH agent 或 Git credential helper。
+            支持 SSH 和 HTTPS。认证依赖系统已配置的 SSH agent 或 Git credential
+            helper。
           </p>
         </div>
         {error && (
@@ -78,8 +99,21 @@ export function BackupSetupModal({ onConnected }: Props) {
           </div>
         )}
         <div className={s.footer}>
-          <button className={s.connectBtn} onClick={handleConnect} disabled={loading}>
-            {loading ? <><Loader size={14} className={s.spin} /> 连接中…</> : "连接"}
+          <button className={s.skipBtn} onClick={onSkip} disabled={loading}>
+            暂不连接，仅本地使用
+          </button>
+          <button
+            className={s.connectBtn}
+            onClick={handleConnect}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <Loader size={14} className={s.spin} /> 连接中…
+              </>
+            ) : (
+              "连接"
+            )}
           </button>
         </div>
       </div>

@@ -4,6 +4,8 @@ import type {
   CreateSkillResult,
   CreateSkillInput,
   UpdateSkillInput,
+  LibraryExportResult,
+  LibraryImportResult,
 } from "../types";
 
 export function formatSkillOperationError(
@@ -338,11 +340,13 @@ export async function skillGetSourceDirPath(
 }
 
 /**
- * Open a skill's SKILL.md file with Typora
- * Maps to backend: open_with_typora(skill_id) -> ()
+ * Open a skill's SKILL.md in the configured editor (or the system default app)
+ * Maps to backend: skill_open_in_editor(skill_id) -> ()
  */
-export async function openWithTypora(skillId: string): Promise<Result<void>> {
-  return tauriInvoke<void>("open_with_typora", { skillId });
+export async function openSkillInEditor(
+  skillId: string
+): Promise<Result<void>> {
+  return tauriInvoke<void>("skill_open_in_editor", { skillId });
 }
 
 /**
@@ -353,4 +357,22 @@ export async function skillSyncFromSource(
   skillId: string
 ): Promise<Result<Skill>> {
   return tauriInvoke<Skill>("skill_sync_from_source", { skillId });
+}
+
+/** Export every managed skill and slash command into one ZIP. */
+export async function libraryExportToZip(
+  outputPath: string
+): Promise<Result<LibraryExportResult>> {
+  return tauriInvoke<LibraryExportResult>("library_export_to_zip", {
+    outputPath,
+  });
+}
+
+/** Import a library ZIP; items whose name already exists are skipped. */
+export async function libraryImportFromZip(
+  zipPath: string
+): Promise<Result<LibraryImportResult>> {
+  return tauriInvoke<LibraryImportResult>("library_import_from_zip", {
+    zipPath,
+  });
 }

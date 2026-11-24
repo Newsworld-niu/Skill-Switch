@@ -29,6 +29,7 @@ import { formatSkillOperationError } from "../services/skill";
 import type { RemoteSkill } from "../types";
 import modalStyles from "../components/layout/AppShell.module.css";
 import s from "./RepoBrowsePage.module.css";
+import { getIconColors } from "../utils/display";
 
 const CATEGORIES = [
   "全部",
@@ -65,20 +66,6 @@ function getCategoryTextColor(category: string): string {
     "AI / LLM": "#8b5cf6",
   };
   return colors[category] || "#6366f1";
-}
-
-function getIconColors(name: string): { bg: string; fg: string } {
-  const palettes = [
-    { bg: "#6366f1", fg: "#ffffff" },
-    { bg: "#22c55e", fg: "#ffffff" },
-    { bg: "#ef4444", fg: "#ffffff" },
-    { bg: "#06b6d4", fg: "#ffffff" },
-    { bg: "#f97316", fg: "#ffffff" },
-    { bg: "#ec4899", fg: "#ffffff" },
-    { bg: "#8b5cf6", fg: "#ffffff" },
-    { bg: "#0ea5e9", fg: "#ffffff" },
-  ];
-  return palettes[name.charCodeAt(0) % palettes.length];
 }
 
 function inferCategory(tags: string[]): string {
@@ -310,7 +297,11 @@ function MarketPreviewModal({
   const summary = buildPreviewSummary(skill, content);
 
   return (
-    <div className={modalStyles.modalOverlay} onClick={onClose}>
+    <div
+      className={modalStyles.modalOverlay}
+      data-modal-overlay
+      onClick={onClose}
+    >
       <div
         className={`${modalStyles.modal} ${s.previewModal}`}
         onClick={(event) => event.stopPropagation()}
@@ -832,6 +823,7 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
                 className={s.search}
                 value={registrySearchInput}
                 onChange={(e) => handleRegistrySearchChange(e.target.value)}
+                data-search-input
                 placeholder="搜索技能..."
               />
             </div>
@@ -843,6 +835,7 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
                   className={s.search}
                   value={search}
                   onChange={(e) => handleSearchChange(e.target.value)}
+                  data-search-input
                   placeholder="搜索..."
                 />
               </div>

@@ -37,9 +37,31 @@ fn get_version_string(app: &AppHandle) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Whether this build ships an updater endpoint and signing public key.
+fn updater_configured(app: &AppHandle) -> bool {
+    let Some(config) = app.config().plugins.0.get("updater") else {
+        return false;
+    };
+    let has_endpoint = config
+        .get("endpoints")
+        .and_then(|v| v.as_array())
+        .is_some_and(|endpoints| !endpoints.is_empty());
+    let has_pubkey = config
+        .get("pubkey")
+        .and_then(|v| v.as_str())
+        .is_some_and(|key| !key.trim().is_empty());
+    has_endpoint && has_pubkey
+}
+
+const UPDATER_NOT_CONFIGURED: &str =
+    "当前构建未配置自动更新源，请前往 GitHub Releases 手动下载新版本";
+
 /// Check if an app update is available
 #[tauri::command]
 pub async fn check_app_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    if !updater_configured(&app) {
+        return Err(UPDATER_NOT_CONFIGURED.to_string());
+    }
     let updater = app.updater().map_err(|e| e.to_string())?;
 
     match updater.check().await {
@@ -60,6 +82,9 @@ pub async fn check_app_update(app: AppHandle) -> Result<Option<UpdateInfo>, Stri
 /// Download and install the update
 #[tauri::command]
 pub async fn download_and_install_update(app: AppHandle) -> Result<UpdateResult, String> {
+    if !updater_configured(&app) {
+        return Err(UPDATER_NOT_CONFIGURED.to_string());
+    }
     let updater = app.updater().map_err(|e| e.to_string())?;
 
     let update = updater

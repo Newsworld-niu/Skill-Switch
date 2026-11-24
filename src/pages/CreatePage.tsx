@@ -213,9 +213,7 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
       if (result.ok) {
         await autoEnableDefaultApps(result.value.skill.id);
         const syncResult = result.value.backupSync;
-        if (syncResult.status === "success") {
-          toast.success(`「${result.value.skill.name}」已创建，并已同步到远端`);
-        } else if (syncResult.status === "failed") {
+        if (syncResult.status === "failed") {
           toast.error(
             `「${result.value.skill.name}」已创建，但远端同步失败（已尝试 ${syncResult.attempts} 次）：${syncResult.lastError || syncResult.message || "未知错误"}`
           );
@@ -260,11 +258,7 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
             ) : (
               <Check size={14} />
             )}
-            {saving
-              ? !editSkillId && backupSyncEnabled
-                ? "保存并同步中..."
-                : "保存中..."
-              : "保存"}
+            {saving ? "保存中..." : "保存"}
           </button>
         </div>
       </header>
@@ -406,8 +400,7 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
               <div className={s.syncNotice}>
                 <Info size={14} />
                 <span>
-                  创建成功后会立即同步到备份源；如果网络异常，系统会自动重试最多
-                  3 次。
+                  创建后会在后台推送到备份源，同步状态显示在侧边栏底部。
                 </span>
               </div>
             </div>

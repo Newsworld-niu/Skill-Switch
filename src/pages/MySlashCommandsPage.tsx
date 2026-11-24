@@ -21,7 +21,7 @@ import { useSlashCommands } from "../context/SlashCommandContext";
 import { useToast } from "../components/ui/Toast";
 import { IconButton } from "../components/ui/IconButton";
 import {
-  openSlashCommandWithTypora,
+  openSlashCommandInEditor,
   readExternalSlashCommandContent,
   slashCommandCheckSymlinkStatus,
   slashCommandExportToZip,
@@ -38,11 +38,17 @@ import { showInFinder } from "../services/skill";
 import type {
   CreateSlashCommandInput,
   ExternalSlashCommand,
-  Provenance,
   SlashCommand,
 } from "../types";
 import modalStyles from "../components/layout/AppShell.module.css";
 import s from "./MyLibraryPage.module.css";
+import { useConfirm } from "../components/ui/ConfirmDialog";
+import { useListKeyboardNav } from "../hooks/useListKeyboardNav";
+import {
+  getIconColors,
+  formatDate,
+  getProvenanceBadge,
+} from "../utils/display";
 
 type CommandTab = "enable" | "commandmd";
 
@@ -55,44 +61,6 @@ interface ProjectEnableState {
 
 function defaultCommandContent(name: string): string {
   return `# ${name || "New Command"}\n\nDescribe what this slash command should do.`;
-}
-
-function getIconColors(name: string): { bg: string; fg: string } {
-  const palettes = [
-    { bg: "#6366f1", fg: "#ffffff" },
-    { bg: "#22c55e", fg: "#ffffff" },
-    { bg: "#ef4444", fg: "#ffffff" },
-    { bg: "#06b6d4", fg: "#ffffff" },
-    { bg: "#f97316", fg: "#ffffff" },
-    { bg: "#ec4899", fg: "#ffffff" },
-    { bg: "#8b5cf6", fg: "#ffffff" },
-    { bg: "#0ea5e9", fg: "#ffffff" },
-  ];
-  return palettes[name.charCodeAt(0) % palettes.length];
-}
-
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString("zh-CN");
-}
-
-function getProvenanceBadge(provenance?: Provenance): string {
-  if (!provenance) return "";
-  switch (provenance.kind) {
-    case "manual":
-      return "";
-    case "file-import":
-      return "导入";
-    case "external-app":
-      return provenance.label || "外部导入";
-    case "marketplace":
-      return "市场导入";
-    case "repo-source":
-      return provenance.sourceName
-        ? `仓库源 · ${provenance.sourceName}`
-        : "仓库源导入";
-    default:
-      return "";
-  }
 }
 
 function CommandCard({
@@ -113,6 +81,7 @@ function CommandCard({
   return (
     <div
       className={`${s.card} ${selected ? s.cardSelected : ""}`}
+      data-list-id={command.id}
       onClick={onClick}
     >
       <div className={s.cardContent}>
@@ -161,6 +130,7 @@ function ExternalCommandCard({
   return (
     <div
       className={`${s.card} ${s.cardExternal} ${selected ? s.cardSelected : ""}`}
+      data-list-id={`${command.appId}:${command.slug}`}
       onClick={onClick}
     >
       <div className={s.cardContent}>
@@ -174,8 +144,7 @@ function ExternalCommandCard({
           <div className={s.cardHeader}>
             <span className={s.cardName}>{command.name}</span>
             <span
-              className={s.cardBadgeExternal}
-              style={{ cursor: "pointer" }}
+              className={`${s.cardBadgeExternal} ${s.cardBadgeLink}`}
               title="在 Finder 中显示"
               onClick={(e) => {
                 e.stopPropagation();
@@ -689,9 +658,12 @@ function SlashCommandDetail({
               <div className={s.skillmdActions}>
                 <button
                   className={`${s.skillmdActionBtn} ${s.skillmdActionSecondary}`}
-                  onClick={() => openSlashCommandWithTypora(command.id)}
+                  onClick={async () => {
+                    const result = await openSlashCommandInEditor(command.id);
+                    if (!result.ok) toast.error(result.error);
+                  }}
                 >
-                  用Typora打开
+                  在编辑器中打开
                 </button>
                 <button
                   className={`${s.skillmdActionBtn} ${s.skillmdActionPrimary}`}
@@ -876,11 +848,14 @@ function CreateSlashCommandModal({
   };
 
   return (
-    <div className={modalStyles.modalOverlay} onClick={onClose}>
+    <div
+      className={modalStyles.modalOverlay}
+      data-modal-overlay
+      onClick={onClose}
+    >
       <div
-        className={modalStyles.modal}
+        className={`${modalStyles.modal} ${s.commandModal}`}
         onClick={(event) => event.stopPropagation()}
-        style={{ width: 720 }}
       >
         <div className={modalStyles.modalHeader}>
           <span className={modalStyles.modalTitle}>创建 Slash Command</span>
@@ -900,7 +875,7 @@ function CreateSlashCommandModal({
             }}
             placeholder="deploy-check"
           />
-          <div className={modalStyles.modalLabel} style={{ marginTop: 12 }}>
+          <div className={`${modalStyles.modalLabel} ${s.modalLabelSpaced}`}>
             描述
           </div>
           <input
@@ -909,7 +884,7 @@ function CreateSlashCommandModal({
             onChange={(event) => setDescription(event.target.value)}
             placeholder="一句话描述这个命令"
           />
-          <div className={modalStyles.modalLabel} style={{ marginTop: 12 }}>
+          <div className={`${modalStyles.modalLabel} ${s.modalLabelSpaced}`}>
             标签
           </div>
           <input
@@ -918,19 +893,14 @@ function CreateSlashCommandModal({
             onChange={(event) => setTags(event.target.value)}
             placeholder="git, release"
           />
-          <div className={modalStyles.modalLabel} style={{ marginTop: 12 }}>
+          <div className={`${modalStyles.modalLabel} ${s.modalLabelSpaced}`}>
             COMMAND.md
           </div>
           <textarea
-            className={s.skillmdEditor}
+            className={`${s.skillmdEditor} ${s.commandModalEditor}`}
             value={content}
             onChange={(event) => setContent(event.target.value)}
             spellCheck={false}
-            style={{
-              minHeight: 240,
-              border: "1px solid var(--border-default)",
-              borderRadius: "var(--radius-md)",
-            }}
           />
           {error && <div className={modalStyles.modalError}>{error}</div>}
         </div>
@@ -977,6 +947,7 @@ export function MySlashCommandsPage({
       ? "仅 Claude"
       : `${visibleCommandApps.length} 个端支持`;
   const toast = useToast();
+  const confirm = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(
     null
@@ -1085,9 +1056,12 @@ export function MySlashCommandsPage({
 
   const handleDelete = useCallback(async () => {
     if (!selectedCommand) return;
-    const confirmed = window.confirm(
-      `删除 Slash Command「${selectedCommand.name}」？`
-    );
+    const confirmed = await confirm({
+      title: `删除 Slash Command「${selectedCommand.name}」？`,
+      message: "会从库中删除并移除所有已启用的链接，同步到备份仓库。",
+      confirmLabel: "删除",
+      danger: true,
+    });
     if (!confirmed) return;
 
     const tid = toast.loading(`正在删除「${selectedCommand.name}」…`);
@@ -1098,7 +1072,7 @@ export function MySlashCommandsPage({
     } else {
       toast.resolve(tid, "error", "删除失败");
     }
-  }, [filteredCommands, remove, selectedCommand, toast]);
+  }, [confirm, filteredCommands, remove, selectedCommand, toast]);
 
   const handleImport = useCallback(async () => {
     if (importing) return;
@@ -1170,6 +1144,21 @@ export function MySlashCommandsPage({
       toast.error(`导出失败：${String(err)}`);
     }
   }, [selectedCommand, toast]);
+
+  const keyboardNavIds = useMemo(
+    () =>
+      activeCommandMode === "external"
+        ? filteredExternalCommands.map(
+            (command) => `${command.appId}:${command.slug}`
+          )
+        : filteredCommands.map((command) => command.id),
+    [activeCommandMode, filteredCommands, filteredExternalCommands]
+  );
+  useListKeyboardNav(
+    keyboardNavIds,
+    activeCommandMode === "external" ? selectedExternalKey : selectedId,
+    activeCommandMode === "external" ? setSelectedExternalKey : setSelectedId
+  );
 
   const renderList = () => {
     if (activeCommandMode === "external") {
@@ -1245,6 +1234,7 @@ export function MySlashCommandsPage({
               className={s.search}
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
+              data-search-input
               placeholder="搜索 Commands..."
             />
           </div>
