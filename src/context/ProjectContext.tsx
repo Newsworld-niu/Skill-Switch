@@ -1,6 +1,18 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from "react";
 import type { Project } from "../types";
-import { projectList, projectCreate, projectUpdate, projectDelete } from "../services/project";
+import {
+  projectList,
+  projectCreate,
+  projectUpdate,
+  projectDelete,
+} from "../services/project";
 import type { CreateProjectInput, UpdateProjectInput } from "../types";
 
 interface ProjectContextValue {
@@ -38,28 +50,34 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   // Create project
-  const create = useCallback(async (input: CreateProjectInput): Promise<Project | null> => {
-    const result = await projectCreate(input);
-    if (result.ok) {
-      setProjects((prev) => [...prev, result.value]);
-      return result.value;
-    }
-    setError(result.error);
-    return null;
-  }, []);
+  const create = useCallback(
+    async (input: CreateProjectInput): Promise<Project | null> => {
+      const result = await projectCreate(input);
+      if (result.ok) {
+        setProjects((prev) => [...prev, result.value]);
+        return result.value;
+      }
+      setError(result.error);
+      return null;
+    },
+    []
+  );
 
   // Update project
-  const update = useCallback(async (input: UpdateProjectInput): Promise<Project | null> => {
-    const result = await projectUpdate(input);
-    if (result.ok) {
-      setProjects((prev) =>
-        prev.map((p) => (p.id === input.id ? result.value : p))
-      );
-      return result.value;
-    }
-    setError(result.error);
-    return null;
-  }, []);
+  const update = useCallback(
+    async (input: UpdateProjectInput): Promise<Project | null> => {
+      const result = await projectUpdate(input);
+      if (result.ok) {
+        setProjects((prev) =>
+          prev.map((p) => (p.id === input.id ? result.value : p))
+        );
+        return result.value;
+      }
+      setError(result.error);
+      return null;
+    },
+    []
+  );
 
   // Delete project
   const remove = useCallback(async (id: string): Promise<boolean> => {

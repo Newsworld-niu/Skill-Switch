@@ -28,6 +28,7 @@ import type {
   McpTransport,
 } from "../types";
 import s from "./McpServersPage.module.css";
+import { useConfirm } from "../components/ui/ConfirmDialog";
 
 interface Props {
   activeMode: McpMode;
@@ -59,6 +60,7 @@ export function McpServersPage({ activeMode, onChangeMode }: Props) {
   const { allApps, visibleMcpApps, getAppMeta } = useApps();
   const { projects } = useProjects();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const [query, setQuery] = useState("");
   const [transportFilter, setTransportFilter] = useState<"all" | McpTransport>(
@@ -408,6 +410,7 @@ export function McpServersPage({ activeMode, onChangeMode }: Props) {
                 className={s.searchInput}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                data-search-input
                 placeholder="搜索 MCP 名称、标识或标签…"
               />
             </div>
@@ -518,14 +521,15 @@ export function McpServersPage({ activeMode, onChangeMode }: Props) {
                       <button
                         type="button"
                         className={`${s.btn} ${s.btnDanger}`}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              `确认删除 MCP「${selectedServer.name}」并从已启用的全局客户端移除？`
-                            )
-                          ) {
-                            void remove(selectedServer.id);
-                          }
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: `删除 MCP「${selectedServer.name}」？`,
+                            message:
+                              "会从已启用的全局客户端中移除，并同步到备份仓库。",
+                            confirmLabel: "删除",
+                            danger: true,
+                          });
+                          if (ok) void remove(selectedServer.id);
                         }}
                       >
                         <Trash2 size={13} /> 删除
@@ -851,7 +855,11 @@ export function McpServersPage({ activeMode, onChangeMode }: Props) {
       )}
 
       {showModal && (
-        <div className={s.modalOverlay} onClick={() => setShowModal(false)}>
+        <div
+          className={s.modalOverlay}
+          data-modal-overlay
+          onClick={() => setShowModal(false)}
+        >
           <div className={s.modal} onClick={(e) => e.stopPropagation()}>
             <div className={s.detailTitle}>
               {editingServer ? "编辑 MCP 服务" : "新建 MCP 服务"}

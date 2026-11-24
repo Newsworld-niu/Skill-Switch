@@ -25,8 +25,8 @@ export function UpdateNotification() {
   const progressPercent = downloadProgress?.total
     ? Math.round((downloadProgress.downloaded / downloadProgress.total) * 100)
     : downloadProgress
-    ? 50
-    : 0;
+      ? 50
+      : 0;
 
   return (
     <div className={s.notification}>
@@ -35,16 +35,12 @@ export function UpdateNotification() {
           <RefreshCw size={16} />
         </div>
         <div className={s.info}>
-          <div className={s.title}>
-            发现新版本 v{updateInfo.version}
-          </div>
+          <div className={s.title}>发现新版本 v{updateInfo.version}</div>
           <div className={s.subtitle}>
             当前版本 v{updateInfo.currentVersion}
           </div>
           {updateInfo.body && (
-            <div className={s.changelog}>
-              {updateInfo.body}
-            </div>
+            <div className={s.changelog}>{updateInfo.body}</div>
           )}
         </div>
         <button className={s.closeBtn} onClick={dismissUpdate}>

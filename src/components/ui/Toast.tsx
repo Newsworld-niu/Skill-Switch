@@ -1,6 +1,10 @@
 import {
-  createContext, useContext, useCallback,
-  useState, useRef, type ReactNode,
+  createContext,
+  useContext,
+  useCallback,
+  useState,
+  useRef,
+  type ReactNode,
 } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -28,7 +32,12 @@ interface ToastContextValue {
   /** Dismiss a specific toast by id */
   dismiss: (id: string) => void;
   /** Replace a loading toast with a result (success / error) */
-  resolve: (id: string, type: "success" | "error", msg: string, duration?: number) => void;
+  resolve: (
+    id: string,
+    type: "success" | "error",
+    msg: string,
+    duration?: number
+  ) => void;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -41,50 +50,64 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  const add = useCallback((type: ToastType, message: string, duration?: number): string => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setToasts(prev => [...prev, { id, type, message, duration }]);
+  const add = useCallback(
+    (type: ToastType, message: string, duration?: number): string => {
+      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setToasts((prev) => [...prev, { id, type, message, duration }]);
 
-    if (duration !== undefined && duration > 0) {
-      const timer = setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-        timers.current.delete(id);
-      }, duration);
-      timers.current.set(id, timer);
-    }
-    return id;
-  }, []);
+      if (duration !== undefined && duration > 0) {
+        const timer = setTimeout(() => {
+          setToasts((prev) => prev.filter((t) => t.id !== id));
+          timers.current.delete(id);
+        }, duration);
+        timers.current.set(id, timer);
+      }
+      return id;
+    },
+    []
+  );
 
   const dismiss = useCallback((id: string) => {
     const timer = timers.current.get(id);
-    if (timer) { clearTimeout(timer); timers.current.delete(id); }
-    setToasts(prev => prev.filter(t => t.id !== id));
+    if (timer) {
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const resolve = useCallback((
-    id: string, type: "success" | "error", msg: string, duration = 2400
-  ) => {
-    const timer = timers.current.get(id);
-    if (timer) { clearTimeout(timer); timers.current.delete(id); }
-    setToasts(prev => prev.map(t => t.id === id ? { ...t, type, message: msg } : t));
-    const newTimer = setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-      timers.current.delete(id);
-    }, duration);
-    timers.current.set(id, newTimer);
-  }, []);
+  const resolve = useCallback(
+    (id: string, type: "success" | "error", msg: string, duration = 2400) => {
+      const timer = timers.current.get(id);
+      if (timer) {
+        clearTimeout(timer);
+        timers.current.delete(id);
+      }
+      setToasts((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, type, message: msg } : t))
+      );
+      const newTimer = setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+        timers.current.delete(id);
+      }, duration);
+      timers.current.set(id, newTimer);
+    },
+    []
+  );
 
   const value: ToastContextValue = {
     toasts,
     success: (msg, dur = 2400) => add("success", msg, dur),
-    error:   (msg, dur = 3500) => add("error",   msg, dur),
-    info:    (msg, dur = 2400) => add("info",     msg, dur),
-    loading: (msg)             => add("loading",  msg, undefined),
+    error: (msg, dur = 3500) => add("error", msg, dur),
+    info: (msg, dur = 2400) => add("info", msg, dur),
+    loading: (msg) => add("loading", msg, undefined),
     dismiss,
     resolve,
   };
 
-  return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
+  return (
+    <ToastContext.Provider value={value}>{children}</ToastContext.Provider>
+  );
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────

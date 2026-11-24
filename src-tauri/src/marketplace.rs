@@ -159,10 +159,12 @@ pub fn import_skill_from_market(
     );
 
     // Create reqwest client with proper headers
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("SkillSwitch/1.0")
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let token = crate::github_auth::token(app);
+    let client =
+        crate::github_auth::with_auth(reqwest::blocking::Client::builder(), token.as_deref())
+            .user_agent("SkillSwitch/1.0")
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     // Fetch the tree from GitHub API
     let response = client
@@ -170,6 +172,10 @@ pub fn import_skill_from_market(
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .map_err(|e| format!("Failed to fetch GitHub tree: {}", e))?;
+
+    if let Some(error) = crate::github_auth::rate_limit_error(&response) {
+        return Err(error);
+    }
 
     let tree_response: serde_json::Value = response
         .json()

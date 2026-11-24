@@ -1,6 +1,8 @@
+mod backup_sync;
 mod commands;
 mod domain;
 mod git;
+mod github_auth;
 mod legacy;
 mod marketplace;
 mod mcp;
@@ -15,12 +17,13 @@ mod updater;
 use commands::{
     apply_environment_restore, apply_install_refresh, apply_project_profile, apply_source_update,
     backup_source_bootstrap, backup_source_connect, backup_source_pull, backup_source_push,
-    backup_source_status, capture_project_changes, check_install_updates, check_source_updates,
-    marketplace_load_feed, mcp_check_status, mcp_create, mcp_delete, mcp_get, mcp_import_external,
-    mcp_install_global, mcp_install_to_project, mcp_list, mcp_list_global_enabled_apps,
-    mcp_uninstall_from_project, mcp_uninstall_global, mcp_update, open_slash_command_with_typora,
-    open_with_typora, plugin_check_status, plugin_delete, plugin_discard_staged, plugin_get,
-    plugin_import_from_dialog, plugin_import_from_folder, plugin_import_from_git,
+    backup_source_status, backup_sync_retry, backup_sync_state_get, capture_project_changes,
+    check_install_updates, check_source_updates, github_token_configured, github_token_set,
+    library_export_to_zip, library_import_from_zip, marketplace_load_feed, mcp_check_status,
+    mcp_create, mcp_delete, mcp_get, mcp_import_external, mcp_install_global,
+    mcp_install_to_project, mcp_list, mcp_list_global_enabled_apps, mcp_uninstall_from_project,
+    mcp_uninstall_global, mcp_update, plugin_check_status, plugin_delete, plugin_discard_staged,
+    plugin_get, plugin_import_from_dialog, plugin_import_from_folder, plugin_import_from_git,
     plugin_import_from_zip, plugin_import_staged, plugin_install_global, plugin_install_to_project,
     plugin_list, plugin_list_global_enabled_apps, plugin_uninstall_from_project,
     plugin_uninstall_global, plugin_update_config, preview_capture_project_changes,
@@ -36,17 +39,17 @@ use commands::{
     skill_import_from_dialog, skill_import_from_folder, skill_import_from_market,
     skill_import_from_repo_source, skill_import_from_zip, skill_install_global,
     skill_install_to_project, skill_list, skill_list_directory, skill_list_global_enabled_apps,
-    skill_read_file, skill_repair_broken_symlinks, skill_search, skill_show_in_finder,
-    skill_source_dir_path, skill_sync_from_source, skill_uninstall_from_project,
-    skill_uninstall_global, skill_update, slash_command_check_symlink_status, slash_command_create,
-    slash_command_delete, slash_command_export_to_zip, slash_command_get,
-    slash_command_import_from_dialog, slash_command_import_from_folder,
-    slash_command_import_from_zip, slash_command_install_global, slash_command_install_to_project,
-    slash_command_list, slash_command_list_directory, slash_command_read_file,
-    slash_command_search, slash_command_show_in_finder, slash_command_source_dir_path,
-    slash_command_sync_from_source, slash_command_uninstall_from_project,
-    slash_command_uninstall_global, slash_command_update, ssh_calibrate_target, ssh_discover_hosts,
-    ssh_sync_all_enabled, ssh_test_connection,
+    skill_open_in_editor, skill_read_file, skill_repair_broken_symlinks, skill_search,
+    skill_show_in_finder, skill_source_dir_path, skill_sync_from_source,
+    skill_uninstall_from_project, skill_uninstall_global, skill_update,
+    slash_command_check_symlink_status, slash_command_create, slash_command_delete,
+    slash_command_export_to_zip, slash_command_get, slash_command_import_from_dialog,
+    slash_command_import_from_folder, slash_command_import_from_zip, slash_command_install_global,
+    slash_command_install_to_project, slash_command_list, slash_command_list_directory,
+    slash_command_open_in_editor, slash_command_read_file, slash_command_search,
+    slash_command_show_in_finder, slash_command_source_dir_path, slash_command_sync_from_source,
+    slash_command_uninstall_from_project, slash_command_uninstall_global, slash_command_update,
+    ssh_calibrate_target, ssh_discover_hosts, ssh_sync_all_enabled, ssh_test_connection,
 };
 use updater::{check_app_update, download_and_install_update, get_current_version};
 
@@ -69,13 +72,8 @@ pub fn run() {
                 }
             }
 
-            // On startup: if backup source is configured, do a fetch/pull to get latest
-            match store::backup_source_startup_sync(&handle) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("[SkillSwitch] startup sync failed: {}", e);
-                }
-            }
+            // On startup: pull the backup source in the background (never block the window)
+            backup_sync::spawn_startup_sync(&handle);
 
             Ok(())
         })
@@ -90,6 +88,8 @@ pub fn run() {
             backup_source_connect,
             backup_source_pull,
             backup_source_push,
+            backup_sync_state_get,
+            backup_sync_retry,
             resource_list,
             project_profile_list,
             project_binding_list,
@@ -123,6 +123,8 @@ pub fn run() {
             skill_import_from_folder,
             skill_import_from_zip,
             skill_export_to_zip,
+            library_export_to_zip,
+            library_import_from_zip,
             skill_list_directory,
             skill_read_file,
             project_remove_cli_folders,
@@ -132,6 +134,8 @@ pub fn run() {
             project_delete,
             show_in_finder,
             skill_show_in_finder,
+            skill_open_in_editor,
+            slash_command_open_in_editor,
             scan_external_skills,
             read_external_skill_content,
             settings_get,
@@ -141,7 +145,6 @@ pub fn run() {
             repo_source_list_skills,
             marketplace_load_feed,
             skill_import_from_market,
-            open_with_typora,
             skill_source_dir_path,
             skill_sync_from_source,
             slash_command_list,
@@ -164,11 +167,12 @@ pub fn run() {
             slash_command_show_in_finder,
             slash_command_source_dir_path,
             slash_command_sync_from_source,
-            open_slash_command_with_typora,
             scan_external_slash_commands,
             read_external_slash_command_content,
             registry_search,
             registry_fetch_content,
+            github_token_configured,
+            github_token_set,
             registry_install,
             backup_source_bootstrap,
             skill_import_from_repo_source,

@@ -400,6 +400,33 @@ pub struct BackupSyncResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LibraryExportResult {
+    pub path: String,
+    pub skill_count: usize,
+    pub command_count: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryImportResult {
+    pub imported_skills: Vec<String>,
+    pub imported_commands: Vec<String>,
+    /// "<folder>：<reason>" for every item that was not imported.
+    pub skipped: Vec<String>,
+}
+
+/// Live state of the background backup push worker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupSyncState {
+    /// "idle" | "syncing" | "synced" | "failed"
+    pub status: String,
+    pub last_error: Option<String>,
+    pub last_synced_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateLegacySkillResult {
     pub skill: LegacySkillDto,
     pub backup_sync: BackupSyncResult,
@@ -749,6 +776,10 @@ pub struct AppSettings {
     pub custom_apps: Vec<CustomAppConfig>,
     pub hidden_app_ids: Vec<String>,
     pub default_install_app_ids: Vec<String>,
+    /// Editor used for "open in editor"; `None` opens with the system default app.
+    pub external_editor: Option<String>,
+    /// User chose local-only mode on first launch instead of connecting a backup repo.
+    pub backup_setup_skipped: bool,
 }
 
 impl Default for AppSettings {
@@ -766,6 +797,8 @@ impl Default for AppSettings {
             custom_apps: Vec::new(),
             hidden_app_ids: Vec::new(),
             default_install_app_ids: Vec::new(),
+            external_editor: None,
+            backup_setup_skipped: false,
         }
     }
 }

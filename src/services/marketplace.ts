@@ -1,5 +1,12 @@
 import { tauriInvoke } from "./tauri";
-import type { Result, MarketplaceFeedPage, MarketplaceFeedInput, MarketplaceSkillFeedItem, ImportMarketSkillInput, Skill } from "../types";
+import type {
+  Result,
+  MarketplaceFeedPage,
+  MarketplaceFeedInput,
+  MarketplaceSkillFeedItem,
+  ImportMarketSkillInput,
+  Skill,
+} from "../types";
 
 export const MARKET_SOURCE_ID = "built-in-market";
 
@@ -25,20 +32,22 @@ export async function skillImportFromMarket(
  * Parse GitHub URL like:
  * https://github.com/owner/repo/tree/branch/path/to/skill
  */
-function parseGitHubTreeUrl(url: string): { owner: string; repo: string; branch: string; skillPath: string } | null {
+function parseGitHubTreeUrl(
+  url: string
+): { owner: string; repo: string; branch: string; skillPath: string } | null {
   try {
     const urlObj = new URL(url);
-    const pathParts = urlObj.pathname.split('/').filter(Boolean);
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
 
     // Expected: ['owner', 'repo', 'tree', 'branch', ...pathParts]
-    if (pathParts.length < 5 || pathParts[2] !== 'tree') {
+    if (pathParts.length < 5 || pathParts[2] !== "tree") {
       return null;
     }
 
     const owner = pathParts[0];
     const repo = pathParts[1];
     const branch = pathParts[3];
-    const skillPath = pathParts.slice(4).join('/');
+    const skillPath = pathParts.slice(4).join("/");
 
     return { owner, repo, branch, skillPath };
   } catch {
@@ -54,29 +63,51 @@ function inferTagsFromSkill(name: string, description: string): string[] {
   const lowerName = name.toLowerCase();
   const lowerDesc = description.toLowerCase();
 
-  if (lowerName.includes('git') || lowerDesc.includes('git') || lowerDesc.includes('pr') || lowerDesc.includes('pull request')) {
-    tags.push('git');
+  if (
+    lowerName.includes("git") ||
+    lowerDesc.includes("git") ||
+    lowerDesc.includes("pr") ||
+    lowerDesc.includes("pull request")
+  ) {
+    tags.push("git");
   }
-  if (lowerName.includes('ci') || lowerDesc.includes('ci') || lowerDesc.includes('deploy')) {
-    tags.push('ci');
+  if (
+    lowerName.includes("ci") ||
+    lowerDesc.includes("ci") ||
+    lowerDesc.includes("deploy")
+  ) {
+    tags.push("ci");
   }
-  if (lowerName.includes('debug') || lowerDesc.includes('debug') || lowerDesc.includes('investigate')) {
-    tags.push('debug');
+  if (
+    lowerName.includes("debug") ||
+    lowerDesc.includes("debug") ||
+    lowerDesc.includes("investigate")
+  ) {
+    tags.push("debug");
   }
-  if (lowerName.includes('security') || lowerDesc.includes('security') || lowerDesc.includes('auth')) {
-    tags.push('security');
+  if (
+    lowerName.includes("security") ||
+    lowerDesc.includes("security") ||
+    lowerDesc.includes("auth")
+  ) {
+    tags.push("security");
   }
-  if (lowerName.includes('database') || lowerDesc.includes('database') || lowerDesc.includes('sql') || lowerDesc.includes('db')) {
-    tags.push('database');
+  if (
+    lowerName.includes("database") ||
+    lowerDesc.includes("database") ||
+    lowerDesc.includes("sql") ||
+    lowerDesc.includes("db")
+  ) {
+    tags.push("database");
   }
-  if (lowerName.includes('test') || lowerDesc.includes('test')) {
-    tags.push('test');
+  if (lowerName.includes("test") || lowerDesc.includes("test")) {
+    tags.push("test");
   }
-  if (lowerName.includes('api') || lowerDesc.includes('api')) {
-    tags.push('api');
+  if (lowerName.includes("api") || lowerDesc.includes("api")) {
+    tags.push("api");
   }
   if (tags.length === 0) {
-    tags.push('ai');
+    tags.push("ai");
   }
 
   return tags;
@@ -108,9 +139,9 @@ export function transformMarketItemToRemoteSkill(
   // Parse the GitHub URL to extract components
   const parsed = parseGitHubTreeUrl(item.githubUrl);
   const owner = parsed?.owner ?? item.author;
-  const repo = parsed?.repo ?? '';
-  const branch = parsed?.branch ?? item.branch ?? 'main';
-  const skillPath = parsed?.skillPath ?? '';
+  const repo = parsed?.repo ?? "";
+  const branch = parsed?.branch ?? item.branch ?? "main";
+  const skillPath = parsed?.skillPath ?? "";
 
   // Infer tags from name and description
   const tags = inferTagsFromSkill(item.name, item.description);

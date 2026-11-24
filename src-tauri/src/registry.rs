@@ -48,10 +48,12 @@ pub fn search_registry(query: &str, limit: u32) -> Result<RegistrySearchResult, 
 
 /// Fetch SKILL.md content from a registry skill
 pub fn fetch_registry_content(
+    app: &tauri::AppHandle,
     source: &str,
     skill_id: &str,
 ) -> Result<RegistrySkillContent, String> {
-    let client = Client::builder()
+    let token = crate::github_auth::token(app);
+    let client = crate::github_auth::with_auth(Client::builder(), token.as_deref())
         .user_agent(USER_AGENT)
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
@@ -149,7 +151,7 @@ pub fn install_registry_skill(
         }
         #[cfg(windows)]
         {
-            if let Err(e) = std::os::windows::fs::symlink_dir(&canonical_dir, &agent_dir) {
+            if let Err(e) = crate::store::symlink_dir_windows(&canonical_dir, &agent_dir) {
                 failed_apps.push(format!("{}: {}", app, e));
                 continue;
             }
@@ -183,6 +185,9 @@ fn get_default_branch(client: &Client, source: &str) -> Result<String, String> {
         .send()
         .map_err(|e| format!("Failed to fetch repo info: {}", e))?;
 
+    if let Some(error) = crate::github_auth::rate_limit_error(&response) {
+        return Err(error);
+    }
     if !response.status().is_success() {
         // Fall back to "main" if we can't determine default branch
         return Ok("main".to_string());
@@ -218,8 +223,8 @@ fn get_skill_paths(client: &Client, source: &str, branch: &str) -> Result<Vec<St
         .send()
         .map_err(|e| format!("Failed to fetch repo tree: {}", e))?;
 
-    if response.status() == 403 {
-        return Err("GitHub API rate limit reached — try again in a few minutes".to_string());
+    if let Some(error) = crate::github_auth::rate_limit_error(&response) {
+        return Err(error);
     }
 
     if !response.status().is_success() {

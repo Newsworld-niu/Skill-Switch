@@ -11,7 +11,9 @@ interface ResourceListFilter {
  * List resources with optional filtering
  * Maps to backend: resource_list(Option<ResourceListFilter>) -> Vec<Resource>
  */
-export async function resourceList(filter?: ResourceListFilter): Promise<Result<Resource[]>> {
+export async function resourceList(
+  filter?: ResourceListFilter
+): Promise<Result<Resource[]>> {
   return tauriInvoke<Resource[]>("resource_list", { filter });
 }
 
@@ -35,7 +37,9 @@ export async function checkInstallUpdates(): Promise<Result<unknown[]>> {
  * Apply source update from upstream
  * Maps to backend: apply_source_update(ResourceIdInput) -> UpdateItem
  */
-export async function applySourceUpdate(resourceId: string): Promise<Result<unknown>> {
+export async function applySourceUpdate(
+  resourceId: string
+): Promise<Result<unknown>> {
   return tauriInvoke<unknown>("apply_source_update", { input: { resourceId } });
 }
 
@@ -43,6 +47,8 @@ export async function applySourceUpdate(resourceId: string): Promise<Result<unkn
  * Refresh an installed resource
  * Maps to backend: apply_install_refresh(InstallRecordIdInput) -> ()
  */
-export async function applyInstallRefresh(recordId: string): Promise<Result<void>> {
+export async function applyInstallRefresh(
+  recordId: string
+): Promise<Result<void>> {
   return tauriInvoke<void>("apply_install_refresh", { input: { recordId } });
 }

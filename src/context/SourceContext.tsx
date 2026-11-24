@@ -119,10 +119,14 @@ export function SourceProvider({ children }: { children: ReactNode }) {
   const [sourceStates, setSourceStates] = useState<Map<string, RepoFetchState>>(
     new Map()
   );
-  const [marketState, setMarketState] = useState<MarketState>(initialMarketState);
+  const [marketState, setMarketState] =
+    useState<MarketState>(initialMarketState);
   const [marketSearch, setMarketSearch] = useState<string>("");
-  const [registryState, setRegistryState] = useState<RegistryState>(initialRegistryState);
-  const registrySearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [registryState, setRegistryState] =
+    useState<RegistryState>(initialRegistryState);
+  const registrySearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   const loadRepoSource = useCallback(async (repo: ThirdPartyRepo) => {
     // Set loading state
@@ -171,47 +175,50 @@ export function SourceProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loadMarketSource = useCallback(async (page: number = 1, search: string = "", append: boolean = false) => {
-    // Set loading state
-    setMarketState((prev) => ({
-      ...prev,
-      status: "loading",
-      error: null,
-    }));
-
-    try {
-      const result = await marketplaceLoadFeed({
-        page,
-        pageSize: DEFAULT_PAGE_SIZE,
-        search: search || undefined,
-      });
-
-      if (!result.ok) {
-        throw new Error(result.error);
-      }
-
-      const pageData: MarketplaceFeedPage = result.value;
-      const newItems = pageData.items.map(transformMarketItemToRemoteSkill);
-
-      setMarketState((prev) => ({
-        items: append ? [...prev.items, ...newItems] : newItems,
-        total: pageData.total,
-        page: pageData.page,
-        pageSize: pageData.pageSize,
-        totalPages: pageData.totalPages,
-        status: "success",
-        error: null,
-        fetchedAt: Date.now(),
-      }));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+  const loadMarketSource = useCallback(
+    async (page: number = 1, search: string = "", append: boolean = false) => {
+      // Set loading state
       setMarketState((prev) => ({
         ...prev,
-        status: "error",
-        error: message,
+        status: "loading",
+        error: null,
       }));
-    }
-  }, []);
+
+      try {
+        const result = await marketplaceLoadFeed({
+          page,
+          pageSize: DEFAULT_PAGE_SIZE,
+          search: search || undefined,
+        });
+
+        if (!result.ok) {
+          throw new Error(result.error);
+        }
+
+        const pageData: MarketplaceFeedPage = result.value;
+        const newItems = pageData.items.map(transformMarketItemToRemoteSkill);
+
+        setMarketState((prev) => ({
+          items: append ? [...prev.items, ...newItems] : newItems,
+          total: pageData.total,
+          page: pageData.page,
+          pageSize: pageData.pageSize,
+          totalPages: pageData.totalPages,
+          status: "success",
+          error: null,
+          fetchedAt: Date.now(),
+        }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setMarketState((prev) => ({
+          ...prev,
+          status: "error",
+          error: message,
+        }));
+      }
+    },
+    []
+  );
 
   // Load/refresh on settings change
   useEffect(() => {
@@ -288,7 +295,12 @@ export function SourceProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [settings.backupSource, settings.thirdPartyRepos, loadMarketSource, loadRepoSource]
+    [
+      settings.backupSource,
+      settings.thirdPartyRepos,
+      loadMarketSource,
+      loadRepoSource,
+    ]
   );
 
   const loadMoreMarket = useCallback(() => {
@@ -296,12 +308,21 @@ export function SourceProvider({ children }: { children: ReactNode }) {
     if (marketState.page >= marketState.totalPages) return;
 
     loadMarketSource(marketState.page + 1, marketSearch, true);
-  }, [marketState.status, marketState.page, marketState.totalPages, marketSearch, loadMarketSource]);
+  }, [
+    marketState.status,
+    marketState.page,
+    marketState.totalPages,
+    marketSearch,
+    loadMarketSource,
+  ]);
 
-  const searchMarket = useCallback((query: string) => {
-    setMarketSearch(query);
-    loadMarketSource(1, query, false);
-  }, [loadMarketSource]);
+  const searchMarket = useCallback(
+    (query: string) => {
+      setMarketSearch(query);
+      loadMarketSource(1, query, false);
+    },
+    [loadMarketSource]
+  );
 
   const searchRegistry = useCallback((query: string) => {
     // Clear previous timeout
@@ -314,7 +335,12 @@ export function SourceProvider({ children }: { children: ReactNode }) {
 
     // Require at least 2 characters
     if (query.length < 2) {
-      setRegistryState((prev) => ({ ...prev, skills: [], status: "idle", error: null }));
+      setRegistryState((prev) => ({
+        ...prev,
+        skills: [],
+        status: "idle",
+        error: null,
+      }));
       return;
     }
 
@@ -394,11 +420,12 @@ export function SourceProvider({ children }: { children: ReactNode }) {
     return sourceId === REGISTRY_SOURCE_ID;
   }, []);
 
-  const allRemoteSkills: RemoteSkill[] = Array.from(sourceStates.values()).flatMap(
-    (s) => s.skills
-  );
+  const allRemoteSkills: RemoteSkill[] = Array.from(
+    sourceStates.values()
+  ).flatMap((s) => s.skills);
 
-  const anyLoading = marketState.status === "loading" ||
+  const anyLoading =
+    marketState.status === "loading" ||
     registryState.status === "loading" ||
     Array.from(sourceStates.values()).some((s) => s.status === "loading");
 

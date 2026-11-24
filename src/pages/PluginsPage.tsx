@@ -27,6 +27,7 @@ import type {
   PluginManifestKind,
 } from "../types";
 import s from "./PluginsPage.module.css";
+import { useConfirm } from "../components/ui/ConfirmDialog";
 
 interface Props {
   onNavigate: (page: PageId) => void;
@@ -76,6 +77,7 @@ export function PluginsPage({ onNavigate }: Props) {
   const { visibleSkillApps, getAppMeta } = useApps();
   const { projects } = useProjects();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -436,6 +438,7 @@ export function PluginsPage({ onNavigate }: Props) {
             className={s.searchInput}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            data-search-input
             placeholder="搜索已导入插件包…"
           />
         </div>
@@ -529,14 +532,15 @@ export function PluginsPage({ onNavigate }: Props) {
                   <button
                     type="button"
                     className={`${s.btn} ${s.btnDanger}`}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `确认原子化卸载并删除插件「${selectedPlugin.name}」及其投射的子组件？`
-                        )
-                      ) {
-                        void remove(selectedPlugin.id);
-                      }
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: `删除插件「${selectedPlugin.name}」？`,
+                        message:
+                          "会一并卸载并删除它投射出的 Skills、Commands 和 MCP，并同步到备份仓库。",
+                        confirmLabel: "删除",
+                        danger: true,
+                      });
+                      if (ok) void remove(selectedPlugin.id);
                     }}
                   >
                     <Trash2 size={13} /> 原子删除
@@ -844,6 +848,7 @@ export function PluginsPage({ onNavigate }: Props) {
       {showGitModal && (
         <div
           className={s.modalOverlay}
+          data-modal-overlay
           onClick={() => !importingGit && setShowGitModal(false)}
         >
           <div className={s.modal} onClick={(e) => e.stopPropagation()}>
@@ -896,6 +901,7 @@ export function PluginsPage({ onNavigate }: Props) {
       {pendingSelection && (
         <div
           className={s.modalOverlay}
+          data-modal-overlay
           onClick={() => void handleCancelMultiSelect()}
         >
           <div

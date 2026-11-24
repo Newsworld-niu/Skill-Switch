@@ -140,9 +140,10 @@ pnpm tauri build
 cd src-tauri && cargo check
 cd src-tauri && cargo clippy -- -D warnings
 cd src-tauri && cargo fmt -- --check
+cd src-tauri && cargo test
 ```
 
-**No test suite is currently configured.**
+Frontend has no tests. Rust has unit tests (`cargo test`, run in CI) for store, git, mcp, plugins, ssh_sync and secrets.
 
 ---
 
@@ -158,7 +159,7 @@ React Component → Context method → Service wrapper (src/services/*.ts) → t
 
 - **Core IPC wrapper**: `src/services/tauri.ts` wraps Tauri's `invoke()` and returns a Rust-style `Result<T>`: `{ ok: true, value: T }` or `{ ok: false, error: string }`
 - **Service layer**: Each domain has a 1:1 mapping — one file in `src/services/` per module in the Rust backend
-- **Command pattern**: All mutating commands use `run_blocking_command` to offload blocking I/O to a thread pool; read-only commands are synchronous
+- **Command pattern**: All mutating commands use `run_locked_command` (thread pool + global mutation lock, see Async Pattern); read-only commands are synchronous or use `run_blocking_command`
 
 ### Type System (Dual Mirror)
 
@@ -185,12 +186,12 @@ Key domain enums:
 React Context providers manage all state, nested in this order (outer → inner):
 
 ```
-AppProvider → SettingsProvider → ToastProvider → [BackupGate] → SourceProvider → SkillProvider → SlashCommandProvider → ProjectProvider → UpdaterProvider
+SettingsProvider → AppProvider → ToastProvider → ConfirmProvider → [BackupGate] → SourceProvider → SkillProvider → SlashCommandProvider → McpProvider → PluginProvider → ProjectProvider → UpdaterProvider
 ```
 
 | Context | File | Key State & Methods |
 |---|---|---|
-| `AppContext` | `src/context/AppContext.tsx` | `APP_LIST` constant (3 apps: claude, codex, cursor), `AppId` type. Pass-through, no mutable state |
+| `AppContext` | `src/context/AppContext.tsx` | Built-in `APP_LIST` plus user-defined custom/SSH apps (`allApps`), visibility helpers |
 | `SettingsContext` | `src/context/SettingsContext.tsx` | `AppSettings` (theme, locale, auto-check, backup source, third-party repos). `updateSettings(partial)`. Theme sync with Tauri window. Backup source cache in `localStorage` |
 | `SourceContext` | `src/context/SourceContext.tsx` | Source/marketplace/registry state, `allRemoteSkills`, per-repo fetch states. `refresh()`, `loadMoreMarket()`, `searchMarket()`, `searchRegistry()` (debounced 300ms) |
 | `SkillContext` | `src/context/SkillContext.tsx` | `skills[]`, `externalSkills[]`, CRUD: `create()`, `update()`, `remove()`, `syncFromSource()`. Loads managed + scans external on mount |
@@ -205,13 +206,17 @@ Each context loads data on mount and provides async methods that wrap the servic
 **No router is used.** `App.tsx` manages page state via a `PageId` union type:
 
 ```typescript
-type PageId = "my-library" | "my-commands" | "repo-browse" | "create" | "settings"
+type PageId = "my-library" | "my-commands" | "mcp-servers" | "plugins" | "repo-browse" | "create" | "settings"
 type LibraryTab = "self-created" | "external"
 ```
 
 Navigation helpers: `navigateToRepo(repoId)`, `navigateToLibraryTab(tab)`, `navigateToExternalApp(appId)`
 
-**BackupGate**: A wrapper component that shows `BackupSetupModal` if no backup source is configured, blocking access to the main app until the user connects a Git repo.
+**BackupGate**: Shows `BackupSetupModal` on first launch when no backup source is configured. The user can connect a Git repo or skip (`settings.backupSetupSkipped`) and use the app local-only.
+
+**Keyboard shortcuts** (`src/hooks/useGlobalShortcuts.ts`): ⌘/Ctrl+K focuses the element marked `data-search-input`; ⌘/Ctrl+N new skill; ⌘/Ctrl+, settings; Esc clicks the topmost `data-modal-overlay` (so every modal overlay must close itself on click). Lists support ↑/↓ via `useListKeyboardNav` (cards carry `data-list-id`).
+
+**Confirmations**: use `useConfirm()` from `src/components/ui/ConfirmDialog.tsx`, never `window.confirm`.
 
 ### Page Components
 
@@ -220,9 +225,12 @@ Navigation helpers: `navigateToRepo(repoId)`, `navigateToLibraryTab(tab)`, `navi
 | My Library | `src/pages/MyLibraryPage.tsx` | Manage self-created & external skills with tab switching |
 | My Commands | `src/pages/MySlashCommandsPage.tsx` | Manage slash commands |
 | Repo Browse | `src/pages/RepoBrowsePage.tsx` | Browse/discover skills from repos, marketplace, registry |
-| Discover | `src/pages/DiscoverPage.tsx` | Discovery page with local, registry, and repo tabs |
+| MCP Servers | `src/pages/McpServersPage.tsx` | Manage MCP server configs across apps |
+| Plugins | `src/pages/PluginsPage.tsx` | Import and manage plugin bundles |
 | Create | `src/pages/CreatePage.tsx` | Skill/slash-command creation and editing form |
-| Settings | `src/pages/SettingsPage.tsx` | App settings, backup source configuration, third-party repos |
+| Settings | `src/pages/SettingsPage.tsx` | App settings, backup source configuration (sections in `src/pages/settings/`) |
+
+`MyLibraryPage` sub-components live in `src/pages/library/`; shared display helpers (`getIconColors`, `formatDate`, `getProvenanceBadge`) in `src/utils/display.ts`.
 
 ### Backend Structure
 
@@ -230,15 +238,29 @@ Navigation helpers: `navigateToRepo(repoId)`, `navigateToLibraryTab(tab)`, `navi
 src-tauri/src/
 ├── main.rs         # Entry point — delegates to skill_switch_lib::run()
 ├── lib.rs          # App setup, registers ~80 Tauri commands, startup logic (theme, backup sync)
-├── commands.rs     # Tauri command handlers (thin IPC boundary layer, ~80 commands)
-├── domain.rs       # Domain types with Serde serialization (~1000 lines, 20+ structs, 10+ enums)
-├── store.rs        # Core business logic: CRUD, file I/O, symlinks, install, backup (~5800 lines)
-├── git.rs          # Git operations via CLI: clone, pull, push, status, merge, branch (~270 lines)
-├── legacy.rs       # One-time migration from v1 (skills.json) to v2 (library.json) (~100 lines)
-├── marketplace.rs  # Marketplace feed loading + GitHub-based skill import (~240 lines)
-├── registry.rs     # Skills.sh registry search + GitHub-based installation (~200 lines)
-├── repo_sources.rs # Third-party repo source sync and skill discovery (~300 lines)
-└── updater.rs      # App self-update via tauri-plugin-updater (~100 lines)
+├── commands.rs     # Tauri command handlers (thin IPC boundary layer)
+├── domain.rs       # Domain types with Serde serialization
+├── store/          # Core business logic
+│   ├── mod.rs      #   library model, paths, persistence (atomic writes, mutation lock), projects, updates
+│   ├── crud.rs     #   create/update/delete/search skills and slash commands
+│   ├── backup.rs   #   backup-source connect/pull/push/bootstrap, post-mutation commit
+│   ├── install.rs  #   global/project install via symlinks, symlink status/repair
+│   ├── sources.rs  #   managed source dirs (skill-sources/, command-sources/), ZIP helpers
+│   ├── import_export.rs # folder/ZIP/dialog/repo-source import, ZIP export, whole-library export/import
+│   ├── browse.rs   #   directory browsing, external app scanning
+│   └── settings.rs #   settings persistence, backup-source config normalization
+├── backup_sync.rs  # Background push worker + `backup-sync-state` / `library-changed` events
+├── git.rs          # Git CLI wrapper: non-interactive (GIT_TERMINAL_PROMPT=0) with timeouts
+├── github_auth.rs  # Optional GitHub token (local secrets or GITHUB_TOKEN/GH_TOKEN) for API calls
+├── mcp.rs          # MCP server management (JSON/TOML app configs)
+├── plugins.rs      # Plugin bundle import and projection
+├── ssh_sync.rs     # Sync to remote (SSH) targets
+├── secrets.rs      # Machine-local secrets vault (local-secrets.json, never synced)
+├── legacy.rs       # One-time migration from v1 (skills.json) to v2 (library.json)
+├── marketplace.rs  # Marketplace feed loading + GitHub-based skill import
+├── registry.rs     # Skills.sh registry search + GitHub-based installation
+├── repo_sources.rs # Third-party repo source sync and skill discovery
+└── updater.rs      # App self-update via tauri-plugin-updater (GitHub Releases latest.json, signed)
 ```
 
 ### Service Files (Frontend)
@@ -253,7 +275,6 @@ src-tauri/src/
 | Backup Source | `src/services/backupSource.ts` | `store.rs` | status, connect, pull, push, bootstrap, import from repo source |
 | Library Repo | `src/services/repo.ts` | `store.rs` | preflight, connect, status, pull, push, sync |
 | Repo Sources | `src/services/repoSource.ts` | `repo_sources.rs` | sync, delete, list-skills |
-| GitHub | `src/services/github.ts` | Pure frontend | REST API client, auto-detects repo layout, parses frontmatter, 10-min cache |
 | Marketplace | `src/services/marketplace.ts` | `marketplace.rs` | loadFeed, importFromMarket |
 | Registry | `src/services/registry.ts` | `registry.rs` | search, fetchContent, install |
 | Resources | `src/services/resource.ts` | `store.rs` | resourceList, checkSourceUpdates, checkInstallUpdates, applySourceUpdate, applyInstallRefresh |
@@ -313,17 +334,22 @@ Content is hashed with SHA256 via `compute_revision()`. `InstallRecord` tracks t
 Two JSON files:
 1. **`library.json`** (in `.skill-switch/` inside repo root): `RepoLibrary` — all resources and project profiles (synced to backup)
 2. **`local-state.json`** (in app data dir): `LocalState` — machine-specific bindings, install records, migration flags (not synced)
+3. **`local-secrets.json`** (in app data dir): MCP/plugin secrets and the GitHub token (not synced)
+
+JSON state files are written with `store::write_file_atomic` (temp file + rename). Real directories found where a symlink should go are moved to `{data_dir}/com.skill-switch.app/replaced/` instead of being deleted.
 
 ### Git Backup Sync
 
-Every mutation automatically pushes to the configured Git backup source:
+Every mutation commits locally and pushes in the background:
 
 ```
-sync_after_mutation() → git add -A → git commit -m "{message}" → git push
+sync_after_mutation() → git add -A → git commit -m "{message}" → backup_sync::schedule_push() (worker thread) → git push
 ```
 
-- Push failures are **non-fatal** — the mutation still succeeds, backup sync status becomes "pending"
-- On app startup, `backup_source_startup_sync` does a fetch/pull
+- The command returns right after the local commit (`BackupSyncResult.status = "queued"`); the UI never waits on the network
+- The push worker coalesces bursts and emits `backup-sync-state` (`idle | syncing | synced | failed`), shown at the bottom of the sidebar with a retry action
+- Push failures are **non-fatal** — the mutation still succeeds; the error is stored in `backupSource.lastError`
+- On app startup, `backup_source_startup_sync` pulls in a background thread, then emits `library-changed` (contexts reload) and retries unpushed commits
 - The backup uses a persistent clone directory for push/pull operations
 - Git identity is auto-configured: `user.name=SkillSwitch`, `user.email=skill-switch@localhost`
 
@@ -404,7 +430,7 @@ The `String` error type propagates naturally through the Tauri IPC layer to the 
 
 ### Async Pattern (Rust)
 
-Mutating commands use `run_blocking_command`:
+Mutating commands use `run_locked_command`, which runs the task on the blocking thread pool while holding the global mutation lock (`store::with_mutation_lock`). The lock is not reentrant: take it only at the command boundary. Commands that open a file dialog pick the path first and take the lock only for the import itself.
 
 ```rust
 async fn run_blocking_command<T, F>(task: F) -> Result<T, String>
@@ -418,7 +444,7 @@ where
 }
 ```
 
-Read-only commands are synchronous.
+Read-only commands are synchronous (or use the unlocked `run_blocking_command` when they hit the network).
 
 ---
 
@@ -426,7 +452,7 @@ Read-only commands are synchronous.
 
 - **Startup migration**: `migrate_copied_skills_to_symlinks` runs automatically to convert any previously copied skill directories into symlinks
 - **Legacy migration**: If `skills.json` (v1) exists, it's auto-migrated to `library.json` (v2) on first run
-- **Backup startup sync**: If a backup source is configured, `backup_source_startup_sync` fetches/pulls on launch
+- **Backup startup sync**: If a backup source is configured, `backup_source_startup_sync` pulls on launch in a background thread (never blocks the window)
 - **Theme sync**: `SettingsContext` listens to Tauri window theme changes and applies `data-theme` attribute
 - **Auto-update check**: `UpdaterContext` checks for updates 3s after mount if `settings.autoCheckAppUpdates` is true
 
@@ -436,9 +462,11 @@ Read-only commands are synchronous.
 
 | Workflow | Trigger | What It Does |
 |---|---|---|
-| `ci.yml` | Push/PR to main/develop | TypeScript type check (`tsc --noEmit`) + Rust clippy (`cargo clippy -- -D warnings`) |
+| `ci.yml` | Push/PR to main/develop | ESLint + Prettier check + `tsc --noEmit`; Rust check + clippy (`-D warnings`) + `cargo test` |
 | `pr-check.yml` | PR open/sync | TypeScript types + Rust format check (`cargo fmt --check`) + `console.log`/`debugger` warning in source |
-| `release.yml` | Git tag (`v*.*.*`) | Build macOS (arm64 + x86_64), Linux, Windows; create GitHub draft release; publish |
+| `release.yml` | Git tag (`v*.*.*`) | Build macOS (arm64 + x86_64), Linux, Windows; sign updater artifacts and upload `latest.json`; create GitHub draft release; publish |
+
+Updater signing: `tauri.conf.json` holds the public key; the private key and its password are the repo secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. A local `pnpm tauri build` needs the same two env vars (`createUpdaterArtifacts` is on). Losing the private key means existing installs can no longer receive updates.
 
 ---
 
@@ -509,9 +537,11 @@ Colors are derived from item name: `palettes[name.charCodeAt(0) % palettes.lengt
 
 ## Important Constraints
 
-- **No test suite** — be extra careful with type safety and manual verification
+- **No frontend tests** — be extra careful with type safety and manual verification; add Rust unit tests for backend logic
 - **Type sync is manual** — `src/types/index.ts` and `src-tauri/src/domain.rs` must be kept in sync by the developer
-- **Backup sync is automatic** — every mutation triggers a git push; don't break this flow
+- **Backup sync is automatic** — every mutation commits and schedules a background push; don't break this flow
+- **Mutations are serialized** — new mutating commands must go through `run_locked_command`
+- **Never delete user files at install targets** — move them aside (`install::move_aside`)
 - **Symlinks are critical** — installation/uninstallation must maintain symlink integrity
 - **Cross-platform** — code must work on macOS, Linux, and Windows (especially symlink creation)
 - **No router** — page state is managed via `PageId` in `App.tsx`

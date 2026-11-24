@@ -1,12 +1,84 @@
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
-fn run_git(path: Option<&Path>, args: &[&str]) -> Option<std::process::Output> {
+/// Upper bound for any single git invocation (network ops included).
+const GIT_TIMEOUT: Duration = Duration::from_secs(120);
+/// Full clones of large repos can legitimately take longer.
+const GIT_CLONE_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// A `git` command that never waits for interactive input: there is no terminal
+/// in a GUI app, so a credential prompt would otherwise hang until killed.
+fn git_command() -> Command {
     let mut command = Command::new("git");
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
+        .stdin(Stdio::null());
+    command
+}
+
+/// Runs the command, killing it if it does not finish within `timeout`.
+fn output_with_timeout(command: &mut Command, timeout: Duration) -> Result<Output, String> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("无法启动 git：{}", error))?;
+
+    let read_pipe = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut buffer);
+            }
+            buffer
+        })
+    };
+    let stdout = read_pipe(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let stderr = read_pipe(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            break status;
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "git 操作超时（{} 秒），请检查网络或凭证配置",
+                timeout.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+
+    Ok(Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
+fn run_git(path: Option<&Path>, args: &[&str]) -> Result<Output, String> {
+    let mut command = git_command();
     if let Some(path) = path {
         command.arg("-C").arg(path);
     }
-    command.args(args).output().ok()
+    command.args(args);
+    output_with_timeout(&mut command, GIT_TIMEOUT)
 }
 
 pub fn git_available() -> bool {
@@ -20,7 +92,7 @@ pub fn is_git_repo(path: &Path) -> bool {
 }
 
 pub fn git_root(path: &Path) -> Option<PathBuf> {
-    let output = run_git(Some(path), &["rev-parse", "--show-toplevel"])?;
+    let output = run_git(Some(path), &["rev-parse", "--show-toplevel"]).ok()?;
 
     if !output.status.success() {
         return None;
@@ -35,7 +107,7 @@ pub fn git_root(path: &Path) -> Option<PathBuf> {
 }
 
 pub fn branch(path: &Path) -> Option<String> {
-    let output = run_git(Some(path), &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let output = run_git(Some(path), &["rev-parse", "--abbrev-ref", "HEAD"]).ok()?;
 
     if !output.status.success() {
         return None;
@@ -49,7 +121,7 @@ pub fn dirty(path: &Path) -> bool {
     let output = run_git(Some(path), &["status", "--porcelain"]);
 
     match output {
-        Some(output) if output.status.success() => {
+        Ok(output) if output.status.success() => {
             !String::from_utf8_lossy(&output.stdout).trim().is_empty()
         }
         _ => false,
@@ -57,8 +129,7 @@ pub fn dirty(path: &Path) -> bool {
 }
 
 pub fn status_porcelain(path: &Path) -> Result<String, String> {
-    let output = run_git(Some(path), &["status", "--porcelain"])
-        .ok_or_else(|| "git status failed".to_string())?;
+    let output = run_git(Some(path), &["status", "--porcelain"])?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -66,7 +137,7 @@ pub fn status_porcelain(path: &Path) -> Result<String, String> {
 }
 
 pub fn add_all(path: &Path) -> Result<(), String> {
-    let output = run_git(Some(path), &["add", "-A"]).ok_or_else(|| "git add failed".to_string())?;
+    let output = run_git(Some(path), &["add", "-A"])?;
     if output.status.success() {
         Ok(())
     } else {
@@ -80,16 +151,16 @@ pub fn commit(path: &Path, message: &str) -> Result<bool, String> {
         return Ok(false);
     }
 
-    let output = Command::new("git")
+    let mut command = git_command();
+    command
         .arg("-C")
         .arg(path)
         .args(["commit", "-m", message])
         .env("GIT_AUTHOR_NAME", "SkillSwitch")
         .env("GIT_AUTHOR_EMAIL", "skill-switch@localhost")
         .env("GIT_COMMITTER_NAME", "SkillSwitch")
-        .env("GIT_COMMITTER_EMAIL", "skill-switch@localhost")
-        .output()
-        .map_err(|error| error.to_string())?;
+        .env("GIT_COMMITTER_EMAIL", "skill-switch@localhost");
+    let output = output_with_timeout(&mut command, GIT_TIMEOUT)?;
 
     if output.status.success() {
         Ok(true)
@@ -99,7 +170,7 @@ pub fn commit(path: &Path, message: &str) -> Result<bool, String> {
 }
 
 pub fn init_repository(path: &Path) -> Result<(), String> {
-    let output = run_git(Some(path), &["init"]).ok_or_else(|| "git init failed".to_string())?;
+    let output = run_git(Some(path), &["init"])?;
     if output.status.success() {
         Ok(())
     } else {
@@ -108,8 +179,7 @@ pub fn init_repository(path: &Path) -> Result<(), String> {
 }
 
 pub fn remote_url(path: &Path, remote: &str) -> Result<Option<String>, String> {
-    let output = run_git(Some(path), &["remote", "get-url", remote])
-        .ok_or_else(|| "git remote get-url failed".to_string())?;
+    let output = run_git(Some(path), &["remote", "get-url", remote])?;
     if !output.status.success() {
         return Ok(None);
     }
@@ -119,8 +189,7 @@ pub fn remote_url(path: &Path, remote: &str) -> Result<Option<String>, String> {
 }
 
 pub fn add_remote(path: &Path, remote: &str, url: &str) -> Result<(), String> {
-    let output = run_git(Some(path), &["remote", "add", remote, url])
-        .ok_or_else(|| "git remote add failed".to_string())?;
+    let output = run_git(Some(path), &["remote", "add", remote, url])?;
     if output.status.success() {
         Ok(())
     } else {
@@ -129,8 +198,7 @@ pub fn add_remote(path: &Path, remote: &str, url: &str) -> Result<(), String> {
 }
 
 pub fn set_remote_url(path: &Path, remote: &str, url: &str) -> Result<(), String> {
-    let output = run_git(Some(path), &["remote", "set-url", remote, url])
-        .ok_or_else(|| "git remote set-url failed".to_string())?;
+    let output = run_git(Some(path), &["remote", "set-url", remote, url])?;
     if output.status.success() {
         Ok(())
     } else {
@@ -139,8 +207,7 @@ pub fn set_remote_url(path: &Path, remote: &str, url: &str) -> Result<(), String
 }
 
 pub fn configure_identity(path: &Path) -> Result<(), String> {
-    let name = run_git(Some(path), &["config", "user.name", "SkillSwitch"])
-        .ok_or_else(|| "git config user.name failed".to_string())?;
+    let name = run_git(Some(path), &["config", "user.name", "SkillSwitch"])?;
     if !name.status.success() {
         return Err(String::from_utf8_lossy(&name.stderr).trim().to_string());
     }
@@ -148,8 +215,7 @@ pub fn configure_identity(path: &Path) -> Result<(), String> {
     let email = run_git(
         Some(path),
         &["config", "user.email", "skill-switch@localhost"],
-    )
-    .ok_or_else(|| "git config user.email failed".to_string())?;
+    )?;
     if !email.status.success() {
         return Err(String::from_utf8_lossy(&email.stderr).trim().to_string());
     }
@@ -158,8 +224,7 @@ pub fn configure_identity(path: &Path) -> Result<(), String> {
 }
 
 pub fn checkout_branch(path: &Path, branch: &str) -> Result<(), String> {
-    let output = run_git(Some(path), &["checkout", "-B", branch])
-        .ok_or_else(|| "git checkout failed".to_string())?;
+    let output = run_git(Some(path), &["checkout", "-B", branch])?;
     if output.status.success() {
         Ok(())
     } else {
@@ -168,8 +233,7 @@ pub fn checkout_branch(path: &Path, branch: &str) -> Result<(), String> {
 }
 
 pub fn push_branch(path: &Path, remote: &str, branch: &str) -> Result<(), String> {
-    let output = run_git(Some(path), &["push", "--set-upstream", remote, branch])
-        .ok_or_else(|| "git push failed".to_string())?;
+    let output = run_git(Some(path), &["push", "--set-upstream", remote, branch])?;
     if output.status.success() {
         Ok(())
     } else {
@@ -178,10 +242,9 @@ pub fn push_branch(path: &Path, remote: &str, branch: &str) -> Result<(), String
 }
 
 pub fn remote_branch_exists(remote_url: &str, branch: &str) -> Result<bool, String> {
-    let output = Command::new("git")
-        .args(["ls-remote", "--heads", remote_url, branch])
-        .output()
-        .map_err(|error| error.to_string())?;
+    let mut command = git_command();
+    command.args(["ls-remote", "--heads", remote_url, branch]);
+    let output = output_with_timeout(&mut command, GIT_TIMEOUT)?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -199,18 +262,19 @@ pub fn tracked(project_path: &Path, absolute_path: &Path) -> bool {
         return false;
     };
 
-    let output = Command::new("git")
+    let mut command = git_command();
+    command
         .arg("-C")
         .arg(&root)
         .args(["ls-files", "--error-unmatch", "--"])
-        .arg(relative)
-        .output();
+        .arg(relative);
+    let output = output_with_timeout(&mut command, GIT_TIMEOUT);
 
     matches!(output, Ok(output) if output.status.success())
 }
 
 pub fn head(path: &Path) -> Option<String> {
-    let output = run_git(Some(path), &["rev-parse", "HEAD"])?;
+    let output = run_git(Some(path), &["rev-parse", "HEAD"]).ok()?;
     if !output.status.success() {
         return None;
     }
@@ -224,7 +288,7 @@ pub fn ahead_behind(path: &Path) -> (usize, usize) {
         &["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
     );
 
-    let Some(output) = output else {
+    let Ok(output) = output else {
         return (0, 0);
     };
 
@@ -250,14 +314,14 @@ pub fn clone_repository(
     destination: &Path,
     branch: Option<&str>,
 ) -> Result<(), String> {
-    let mut command = Command::new("git");
+    let mut command = git_command();
     command.arg("clone");
     if let Some(branch) = branch {
         command.arg("--branch").arg(branch);
     }
     command.arg(remote_url).arg(destination);
 
-    let output = command.output().map_err(|error| error.to_string())?;
+    let output = output_with_timeout(&mut command, GIT_CLONE_TIMEOUT)?;
     if output.status.success() {
         return Ok(());
     }
@@ -270,14 +334,14 @@ pub fn clone_repository_shallow(
     destination: &Path,
     branch: Option<&str>,
 ) -> Result<(), String> {
-    let mut command = Command::new("git");
+    let mut command = git_command();
     command.args(["clone", "--depth", "1"]);
     if let Some(branch) = branch {
         command.arg("--branch").arg(branch);
     }
     command.arg(remote_url).arg(destination);
 
-    let output = command.output().map_err(|error| error.to_string())?;
+    let output = output_with_timeout(&mut command, GIT_CLONE_TIMEOUT)?;
     if output.status.success() {
         return Ok(());
     }
@@ -286,7 +350,7 @@ pub fn clone_repository_shallow(
 }
 
 pub fn pull(path: &Path) -> Result<(), String> {
-    let output = run_git(Some(path), &["pull"]).ok_or_else(|| "git pull failed".to_string())?;
+    let output = run_git(Some(path), &["pull"])?;
     if output.status.success() {
         return Ok(());
     }
@@ -295,7 +359,7 @@ pub fn pull(path: &Path) -> Result<(), String> {
 }
 
 pub fn push(path: &Path) -> Result<(), String> {
-    let output = run_git(Some(path), &["push"]).ok_or_else(|| "git push failed".to_string())?;
+    let output = run_git(Some(path), &["push"])?;
     if output.status.success() {
         return Ok(());
     }
@@ -304,13 +368,13 @@ pub fn push(path: &Path) -> Result<(), String> {
 }
 
 pub fn ls_remote_head(remote_url: &str, reference: Option<&str>) -> Result<String, String> {
-    let mut command = Command::new("git");
+    let mut command = git_command();
     command.arg("ls-remote").arg(remote_url);
     if let Some(reference) = reference {
         command.arg(reference);
     }
 
-    let output = command.output().map_err(|error| error.to_string())?;
+    let output = output_with_timeout(&mut command, GIT_TIMEOUT)?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -330,8 +394,7 @@ pub fn read_file_at_revision(
     source_path: &str,
 ) -> Result<String, String> {
     let spec = format!("{revision}:{source_path}");
-    let output =
-        run_git(Some(repo_path), &["show", &spec]).ok_or_else(|| "git show failed".to_string())?;
+    let output = run_git(Some(repo_path), &["show", &spec])?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -339,13 +402,13 @@ pub fn read_file_at_revision(
 }
 
 pub fn merge_file(base: &Path, local: &Path, remote: &Path) -> Result<(String, bool), String> {
-    let output = Command::new("git")
+    let mut command = git_command();
+    command
         .args(["merge-file", "--stdout"])
         .arg(local)
         .arg(base)
-        .arg(remote)
-        .output()
-        .map_err(|error| error.to_string())?;
+        .arg(remote);
+    let output = output_with_timeout(&mut command, GIT_TIMEOUT)?;
 
     let merged = String::from_utf8_lossy(&output.stdout).into_owned();
     if output.status.success() {
@@ -357,4 +420,27 @@ pub fn merge_file(base: &Path, local: &Path, remote: &Path) -> Result<(String, b
     }
 
     Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_git_captures_output() {
+        let output = run_git(None, &["--version"]).unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).starts_with("git version"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_with_timeout_kills_hung_process() {
+        let mut command = Command::new("sleep");
+        command.arg("5");
+        let started = Instant::now();
+        let result = output_with_timeout(&mut command, Duration::from_millis(200));
+        assert!(result.unwrap_err().contains("超时"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 }

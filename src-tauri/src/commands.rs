@@ -23,6 +23,15 @@ where
         .map_err(|error| error.to_string())?
 }
 
+/// Like `run_blocking_command`, but holds the global mutation lock while the task runs.
+async fn run_locked_command<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    run_blocking_command(move || store::with_mutation_lock(task)).await
+}
+
 #[tauri::command]
 pub fn repo_preflight(
     app: tauri::AppHandle,
@@ -59,26 +68,29 @@ pub fn repo_preflight(
 }
 
 #[tauri::command]
-pub fn repo_connect(
+pub async fn repo_connect(
     app: tauri::AppHandle,
     input: RepoConnectInput,
 ) -> Result<crate::domain::RepoStatus, String> {
-    let path = input
-        .local_path
-        .clone()
-        .or(input.path.clone())
-        .ok_or_else(|| "repo path is required".to_string())?;
-    let initialize_if_missing = input
-        .initialize_if_missing
-        .unwrap_or_else(|| input.mode.as_deref() == Some("clone"));
+    run_locked_command(move || {
+        let path = input
+            .local_path
+            .clone()
+            .or(input.path.clone())
+            .ok_or_else(|| "repo path is required".to_string())?;
+        let initialize_if_missing = input
+            .initialize_if_missing
+            .unwrap_or_else(|| input.mode.as_deref() == Some("clone"));
 
-    store::ensure_repo_connection(
-        &app,
-        &path,
-        input.remote_url.as_deref(),
-        input.branch.as_deref(),
-        initialize_if_missing,
-    )
+        store::ensure_repo_connection(
+            &app,
+            &path,
+            input.remote_url.as_deref(),
+            input.branch.as_deref(),
+            initialize_if_missing,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -87,18 +99,18 @@ pub fn repo_status(app: tauri::AppHandle) -> Result<crate::domain::RepoStatus, S
 }
 
 #[tauri::command]
-pub fn repo_pull(app: tauri::AppHandle) -> Result<crate::domain::RepoStatus, String> {
-    store::repo_pull(&app)
+pub async fn repo_pull(app: tauri::AppHandle) -> Result<crate::domain::RepoStatus, String> {
+    run_locked_command(move || store::repo_pull(&app)).await
 }
 
 #[tauri::command]
-pub fn repo_push(app: tauri::AppHandle) -> Result<crate::domain::RepoStatus, String> {
-    store::repo_push(&app)
+pub async fn repo_push(app: tauri::AppHandle) -> Result<crate::domain::RepoStatus, String> {
+    run_locked_command(move || store::repo_push(&app)).await
 }
 
 #[tauri::command]
-pub fn repo_sync(app: tauri::AppHandle) -> Result<crate::domain::RepoStatus, String> {
-    store::repo_sync(&app)
+pub async fn repo_sync(app: tauri::AppHandle) -> Result<crate::domain::RepoStatus, String> {
+    run_locked_command(move || store::repo_sync(&app)).await
 }
 
 #[tauri::command]
@@ -109,24 +121,34 @@ pub fn backup_source_status(
 }
 
 #[tauri::command]
+pub fn backup_sync_state_get() -> crate::domain::BackupSyncState {
+    crate::backup_sync::current_state()
+}
+
+#[tauri::command]
+pub fn backup_sync_retry(app: tauri::AppHandle) {
+    crate::backup_sync::schedule_push(&app);
+}
+
+#[tauri::command]
 pub async fn backup_source_connect(
     app: tauri::AppHandle,
 ) -> Result<crate::domain::BackupSourceStatus, String> {
-    run_blocking_command(move || store::backup_source_connect(&app)).await
+    run_locked_command(move || store::backup_source_connect(&app)).await
 }
 
 #[tauri::command]
 pub async fn backup_source_pull(
     app: tauri::AppHandle,
 ) -> Result<crate::domain::BackupSourceStatus, String> {
-    run_blocking_command(move || store::backup_source_pull(&app)).await
+    run_locked_command(move || store::backup_source_pull(&app)).await
 }
 
 #[tauri::command]
 pub async fn backup_source_push(
     app: tauri::AppHandle,
 ) -> Result<crate::domain::BackupSourceStatus, String> {
-    run_blocking_command(move || store::backup_source_push(&app)).await
+    run_locked_command(move || store::backup_source_push(&app)).await
 }
 
 #[tauri::command]
@@ -168,11 +190,11 @@ pub fn preview_project_apply(
 }
 
 #[tauri::command]
-pub fn apply_project_profile(
+pub async fn apply_project_profile(
     app: tauri::AppHandle,
     input: ProjectPreviewInput,
 ) -> Result<(), String> {
-    store::apply_project_profile(&app, &input)
+    run_locked_command(move || store::apply_project_profile(&app, &input)).await
 }
 
 #[tauri::command]
@@ -188,19 +210,19 @@ pub fn preview_capture_project_changes(
 }
 
 #[tauri::command]
-pub fn capture_project_changes(
+pub async fn capture_project_changes(
     app: tauri::AppHandle,
     input: ProjectPreviewInput,
 ) -> Result<(), String> {
-    store::capture_project_changes(&app, &input)
+    run_locked_command(move || store::capture_project_changes(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn apply_install_refresh(
+pub async fn apply_install_refresh(
     app: tauri::AppHandle,
     input: InstallRecordIdInput,
 ) -> Result<(), String> {
-    store::apply_install_refresh(&app, &input.record_id)
+    run_locked_command(move || store::apply_install_refresh(&app, &input.record_id)).await
 }
 
 #[tauri::command]
@@ -218,8 +240,8 @@ pub fn preview_environment_restore(
 }
 
 #[tauri::command]
-pub fn apply_environment_restore(app: tauri::AppHandle) -> Result<(), String> {
-    store::apply_environment_restore(&app)
+pub async fn apply_environment_restore(app: tauri::AppHandle) -> Result<(), String> {
+    run_locked_command(move || store::apply_environment_restore(&app)).await
 }
 
 #[tauri::command]
@@ -245,11 +267,11 @@ pub fn preview_source_update(
 }
 
 #[tauri::command]
-pub fn apply_source_update(
+pub async fn apply_source_update(
     app: tauri::AppHandle,
     input: ResourceIdInput,
 ) -> Result<crate::domain::UpdateItem, String> {
-    store::apply_source_update(&app, &input.resource_id)
+    run_locked_command(move || store::apply_source_update(&app, &input.resource_id)).await
 }
 
 #[tauri::command]
@@ -270,7 +292,7 @@ pub async fn skill_create(
     app: tauri::AppHandle,
     input: CreateSkillInput,
 ) -> Result<crate::domain::CreateLegacySkillResult, String> {
-    run_blocking_command(move || store::create_legacy_skill(&app, &input)).await
+    run_locked_command(move || store::create_legacy_skill(&app, &input)).await
 }
 
 #[tauri::command]
@@ -278,12 +300,12 @@ pub async fn skill_update(
     app: tauri::AppHandle,
     input: UpdateSkillInput,
 ) -> Result<crate::domain::LegacySkillDto, String> {
-    run_blocking_command(move || store::update_legacy_skill(&app, &input)).await
+    run_locked_command(move || store::update_legacy_skill(&app, &input)).await
 }
 
 #[tauri::command]
 pub async fn skill_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    run_blocking_command(move || store::delete_legacy_skill(&app, &id)).await
+    run_locked_command(move || store::delete_legacy_skill(&app, &id)).await
 }
 
 #[tauri::command]
@@ -300,24 +322,24 @@ pub fn project_list(app: tauri::AppHandle) -> Result<Vec<crate::domain::LegacyPr
 }
 
 #[tauri::command]
-pub fn project_create(
+pub async fn project_create(
     app: tauri::AppHandle,
     input: CreateProjectInput,
 ) -> Result<crate::domain::LegacyProjectDto, String> {
-    store::create_legacy_project(&app, &input)
+    run_locked_command(move || store::create_legacy_project(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn project_update(
+pub async fn project_update(
     app: tauri::AppHandle,
     input: UpdateProjectInput,
 ) -> Result<crate::domain::LegacyProjectDto, String> {
-    store::update_legacy_project(&app, &input)
+    run_locked_command(move || store::update_legacy_project(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn project_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    store::delete_legacy_project(&app, &id)
+pub async fn project_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    run_locked_command(move || store::delete_legacy_project(&app, &id)).await
 }
 
 #[tauri::command]
@@ -340,43 +362,13 @@ pub fn skill_show_in_finder(app: tauri::AppHandle, skill_id: String) -> Result<(
 }
 
 #[tauri::command]
-pub fn open_with_typora(app: tauri::AppHandle, skill_id: String) -> Result<(), String> {
+pub fn skill_open_in_editor(app: tauri::AppHandle, skill_id: String) -> Result<(), String> {
     let skill_dir = store::skill_source_dir_by_id(&app, &skill_id)?;
     let skill_md_path = skill_dir.join("SKILL.md");
     if !skill_md_path.exists() {
         return Err("SKILL.md 文件不存在".to_string());
     }
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("-a")
-            .arg("Typora")
-            .arg(&skill_md_path)
-            .spawn()
-            .map_err(|e| format!("failed to open Typora: {}", e))?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("Typora")
-            .arg(&skill_md_path)
-            .spawn()
-            .map_err(|e| format!("failed to open Typora: {}", e))?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("typora")
-            .arg(&skill_md_path)
-            .spawn()
-            .map_err(|e| format!("failed to open Typora: {}", e))?;
-    }
-
-    Ok(())
+    open_file_in_editor(&app, &skill_md_path)
 }
 
 #[tauri::command]
@@ -394,7 +386,7 @@ pub async fn skill_sync_from_source(
     app: tauri::AppHandle,
     skill_id: String,
 ) -> Result<crate::domain::LegacySkillDto, String> {
-    run_blocking_command(move || store::sync_legacy_skill_from_source(&app, &skill_id)).await
+    run_locked_command(move || store::sync_legacy_skill_from_source(&app, &skill_id)).await
 }
 
 #[tauri::command]
@@ -417,7 +409,7 @@ pub async fn slash_command_create(
     app: tauri::AppHandle,
     input: CreateSlashCommandInput,
 ) -> Result<crate::domain::CreateSlashCommandResult, String> {
-    run_blocking_command(move || store::create_slash_command(&app, &input)).await
+    run_locked_command(move || store::create_slash_command(&app, &input)).await
 }
 
 #[tauri::command]
@@ -425,12 +417,12 @@ pub async fn slash_command_update(
     app: tauri::AppHandle,
     input: UpdateSlashCommandInput,
 ) -> Result<crate::domain::SlashCommandDto, String> {
-    run_blocking_command(move || store::update_slash_command(&app, &input)).await
+    run_locked_command(move || store::update_slash_command(&app, &input)).await
 }
 
 #[tauri::command]
 pub async fn slash_command_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    run_blocking_command(move || store::delete_slash_command(&app, &id)).await
+    run_locked_command(move || store::delete_slash_command(&app, &id)).await
 }
 
 #[tauri::command]
@@ -454,7 +446,7 @@ pub fn slash_command_show_in_finder(
 }
 
 #[tauri::command]
-pub fn open_slash_command_with_typora(
+pub fn slash_command_open_in_editor(
     app: tauri::AppHandle,
     command_id: String,
 ) -> Result<(), String> {
@@ -463,37 +455,46 @@ pub fn open_slash_command_with_typora(
     if !command_md_path.exists() {
         return Err("COMMAND.md 文件不存在".to_string());
     }
+    open_file_in_editor(&app, &command_md_path)
+}
+
+/// Opens `file` in the editor configured in settings, or the system default app.
+fn open_file_in_editor(app: &tauri::AppHandle, file: &Path) -> Result<(), String> {
+    let editor = store::get_settings(app)?
+        .external_editor
+        .map(|editor| editor.trim().to_string())
+        .filter(|editor| !editor.is_empty());
+
+    let Some(editor) = editor else {
+        use tauri_plugin_opener::OpenerExt;
+        return app
+            .opener()
+            .open_path(file.to_string_lossy(), None::<&str>)
+            .map_err(|e| format!("无法用默认程序打开文件：{}", e));
+    };
 
     #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("-a")
-            .arg("Typora")
-            .arg(&command_md_path)
-            .spawn()
-            .map_err(|e| format!("failed to open Typora: {}", e))?;
-    }
-
+    let mut command = {
+        // Accepts an app name ("Typora", "Visual Studio Code") like `open -a`.
+        let mut command = std::process::Command::new("open");
+        command.arg("-a").arg(&editor);
+        command
+    };
     #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("Typora")
-            .arg(&command_md_path)
-            .spawn()
-            .map_err(|e| format!("failed to open Typora: {}", e))?;
-    }
+    let mut command = {
+        // `start` resolves .cmd/.bat shims such as `code`.
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]).arg(&editor);
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = std::process::Command::new(&editor);
 
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("typora")
-            .arg(&command_md_path)
-            .spawn()
-            .map_err(|e| format!("failed to open Typora: {}", e))?;
-    }
-
-    Ok(())
+    command
+        .arg(file)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("无法启动编辑器「{}」：{}", editor, e))
 }
 
 #[tauri::command]
@@ -514,7 +515,7 @@ pub async fn slash_command_sync_from_source(
     app: tauri::AppHandle,
     command_id: String,
 ) -> Result<crate::domain::SlashCommandDto, String> {
-    run_blocking_command(move || store::sync_slash_command_from_source(&app, &command_id)).await
+    run_locked_command(move || store::sync_slash_command_from_source(&app, &command_id)).await
 }
 
 fn open_in_system_file_manager(target_path: &Path) -> Result<(), String> {
@@ -558,13 +559,16 @@ pub fn settings_get(app: tauri::AppHandle) -> Result<crate::domain::AppSettings,
 }
 
 #[tauri::command]
-pub fn settings_set(
+pub async fn settings_set(
     app: tauri::AppHandle,
     settings: crate::domain::AppSettings,
 ) -> Result<(), String> {
-    store::set_settings(&app, &settings)?;
-    store::apply_theme_preference(&app, settings.theme.as_str());
-    Ok(())
+    run_locked_command(move || {
+        store::set_settings(&app, &settings)?;
+        store::apply_theme_preference(&app, settings.theme.as_str());
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -572,12 +576,12 @@ pub async fn repo_source_sync(
     app: tauri::AppHandle,
     repo: ThirdPartyRepo,
 ) -> Result<crate::domain::ThirdPartyRepo, String> {
-    run_blocking_command(move || crate::repo_sources::sync_repo_source(&app, &repo)).await
+    run_locked_command(move || crate::repo_sources::sync_repo_source(&app, &repo)).await
 }
 
 #[tauri::command]
 pub async fn repo_source_delete(app: tauri::AppHandle, repo: ThirdPartyRepo) -> Result<(), String> {
-    run_blocking_command(move || crate::repo_sources::delete_repo_source(&app, &repo)).await
+    run_locked_command(move || crate::repo_sources::delete_repo_source(&app, &repo)).await
 }
 
 #[tauri::command]
@@ -591,43 +595,43 @@ pub async fn repo_source_list_skills(
 // ─── Project skill install commands ─────────────────────────────────────────────
 
 #[tauri::command]
-pub fn skill_install_to_project(
+pub async fn skill_install_to_project(
     app: tauri::AppHandle,
     input: InstallSkillToProjectInput,
 ) -> Result<crate::domain::InstallSkillToProjectResult, String> {
-    store::install_skill_to_project(&app, &input)
+    run_locked_command(move || store::install_skill_to_project(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn skill_uninstall_from_project(
+pub async fn skill_uninstall_from_project(
     app: tauri::AppHandle,
     input: InstallSkillToProjectInput,
 ) -> Result<crate::domain::InstallSkillToProjectResult, String> {
-    store::uninstall_skill_from_project(&app, &input)
+    run_locked_command(move || store::uninstall_skill_from_project(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn slash_command_install_to_project(
+pub async fn slash_command_install_to_project(
     app: tauri::AppHandle,
     input: InstallSlashCommandToProjectInput,
 ) -> Result<crate::domain::InstallSlashCommandToProjectResult, String> {
-    store::install_slash_command_to_project(&app, &input)
+    run_locked_command(move || store::install_slash_command_to_project(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn slash_command_uninstall_from_project(
+pub async fn slash_command_uninstall_from_project(
     app: tauri::AppHandle,
     input: InstallSlashCommandToProjectInput,
 ) -> Result<crate::domain::InstallSlashCommandToProjectResult, String> {
-    store::uninstall_slash_command_from_project(&app, &input)
+    run_locked_command(move || store::uninstall_slash_command_from_project(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn project_remove_cli_folders(
+pub async fn project_remove_cli_folders(
     app: tauri::AppHandle,
     input: RemoveProjectCliInput,
 ) -> Result<crate::domain::RemoveProjectCliResult, String> {
-    store::remove_project_cli_folders(&app, &input)
+    run_locked_command(move || store::remove_project_cli_folders(&app, &input)).await
 }
 
 // ─── Global skill install commands ─────────────────────────────────────────────
@@ -637,7 +641,7 @@ pub async fn skill_install_global(
     app: tauri::AppHandle,
     input: InstallSkillGlobalInput,
 ) -> Result<crate::domain::InstallSkillGlobalResult, String> {
-    run_blocking_command(move || store::install_skill_global(&app, &input)).await
+    run_locked_command(move || store::install_skill_global(&app, &input)).await
 }
 
 #[tauri::command]
@@ -645,7 +649,7 @@ pub async fn skill_uninstall_global(
     app: tauri::AppHandle,
     input: InstallSkillGlobalInput,
 ) -> Result<crate::domain::InstallSkillGlobalResult, String> {
-    run_blocking_command(move || store::uninstall_skill_global(&app, &input)).await
+    run_locked_command(move || store::uninstall_skill_global(&app, &input)).await
 }
 
 #[tauri::command]
@@ -653,7 +657,7 @@ pub async fn slash_command_install_global(
     app: tauri::AppHandle,
     input: InstallSlashCommandGlobalInput,
 ) -> Result<crate::domain::InstallSlashCommandGlobalResult, String> {
-    run_blocking_command(move || store::install_slash_command_global(&app, &input)).await
+    run_locked_command(move || store::install_slash_command_global(&app, &input)).await
 }
 
 #[tauri::command]
@@ -661,7 +665,7 @@ pub async fn slash_command_uninstall_global(
     app: tauri::AppHandle,
     input: InstallSlashCommandGlobalInput,
 ) -> Result<crate::domain::InstallSlashCommandGlobalResult, String> {
-    run_blocking_command(move || store::uninstall_slash_command_global(&app, &input)).await
+    run_locked_command(move || store::uninstall_slash_command_global(&app, &input)).await
 }
 
 // ─── Symlink status commands ───────────────────────────────────────────────────
@@ -690,22 +694,25 @@ pub fn slash_command_check_symlink_status(
 }
 
 #[tauri::command]
-pub fn skill_repair_broken_symlinks(
+pub async fn skill_repair_broken_symlinks(
     app: tauri::AppHandle,
     input: crate::domain::CheckSymlinkStatusInput,
 ) -> Result<crate::domain::RepairBrokenSymlinksResult, String> {
-    store::repair_broken_symlinks(&app, &input)
+    run_locked_command(move || store::repair_broken_symlinks(&app, &input)).await
 }
 
 // ─── Import skill commands ─────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn skill_import_from_folder(
+pub async fn skill_import_from_folder(
     app: tauri::AppHandle,
     folder_path: String,
 ) -> Result<crate::domain::LegacySkillDto, String> {
-    let path = Path::new(&folder_path);
-    store::import_skill_from_folder(&app, path)
+    run_locked_command(move || {
+        let path = Path::new(&folder_path);
+        store::import_skill_from_folder(&app, path)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -716,21 +723,27 @@ pub async fn skill_import_from_dialog(
 }
 
 #[tauri::command]
-pub fn skill_import_from_zip(
+pub async fn skill_import_from_zip(
     app: tauri::AppHandle,
     zip_path: String,
 ) -> Result<crate::domain::LegacySkillDto, String> {
-    let path = Path::new(&zip_path);
-    store::import_skill_from_zip(&app, path)
+    run_locked_command(move || {
+        let path = Path::new(&zip_path);
+        store::import_skill_from_zip(&app, path)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn slash_command_import_from_folder(
+pub async fn slash_command_import_from_folder(
     app: tauri::AppHandle,
     folder_path: String,
 ) -> Result<crate::domain::SlashCommandDto, String> {
-    let path = Path::new(&folder_path);
-    store::import_slash_command_from_folder(&app, path)
+    run_locked_command(move || {
+        let path = Path::new(&folder_path);
+        store::import_slash_command_from_folder(&app, path)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -741,12 +754,15 @@ pub async fn slash_command_import_from_dialog(
 }
 
 #[tauri::command]
-pub fn slash_command_import_from_zip(
+pub async fn slash_command_import_from_zip(
     app: tauri::AppHandle,
     zip_path: String,
 ) -> Result<crate::domain::SlashCommandDto, String> {
-    let path = Path::new(&zip_path);
-    store::import_slash_command_from_zip(&app, path)
+    run_locked_command(move || {
+        let path = Path::new(&zip_path);
+        store::import_slash_command_from_zip(&app, path)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -757,6 +773,22 @@ pub fn skill_export_to_zip(
 ) -> Result<String, String> {
     let path = Path::new(&output_path);
     store::export_skill_to_zip(&app, &skill_id, path)
+}
+
+#[tauri::command]
+pub async fn library_export_to_zip(
+    app: tauri::AppHandle,
+    output_path: String,
+) -> Result<crate::domain::LibraryExportResult, String> {
+    run_locked_command(move || store::export_library_to_zip(&app, Path::new(&output_path))).await
+}
+
+#[tauri::command]
+pub async fn library_import_from_zip(
+    app: tauri::AppHandle,
+    zip_path: String,
+) -> Result<crate::domain::LibraryImportResult, String> {
+    run_locked_command(move || store::import_library_from_zip(&app, Path::new(&zip_path))).await
 }
 
 #[tauri::command]
@@ -842,11 +874,11 @@ pub fn marketplace_load_feed(
 }
 
 #[tauri::command]
-pub fn skill_import_from_market(
+pub async fn skill_import_from_market(
     app: tauri::AppHandle,
     input: ImportMarketSkillInput,
 ) -> Result<crate::domain::LegacySkillDto, String> {
-    crate::marketplace::import_skill_from_market(&app, &input)
+    run_locked_command(move || crate::marketplace::import_skill_from_market(&app, &input)).await
 }
 
 // ─── Registry commands ────────────────────────────────────────────────────────
@@ -861,18 +893,30 @@ pub fn registry_search(
 }
 
 #[tauri::command]
-pub fn registry_fetch_content(
+pub async fn registry_fetch_content(
+    app: tauri::AppHandle,
     source: String,
     skill_id: String,
 ) -> Result<crate::domain::RegistrySkillContent, String> {
-    crate::registry::fetch_registry_content(&source, &skill_id)
+    run_blocking_command(move || crate::registry::fetch_registry_content(&app, &source, &skill_id))
+        .await
 }
 
 #[tauri::command]
-pub fn registry_install(
+pub fn github_token_configured(app: tauri::AppHandle) -> bool {
+    crate::github_auth::has_stored_token(&app)
+}
+
+#[tauri::command]
+pub async fn github_token_set(app: tauri::AppHandle, token: String) -> Result<(), String> {
+    run_locked_command(move || crate::github_auth::set_token(&app, &token)).await
+}
+
+#[tauri::command]
+pub async fn registry_install(
     input: crate::domain::RegistryInstallInput,
 ) -> Result<crate::domain::RegistryInstallResult, String> {
-    crate::registry::install_registry_skill(&input)
+    run_locked_command(move || crate::registry::install_registry_skill(&input)).await
 }
 
 // ─── Backup bootstrap & repo source import commands ───────────────────────────
@@ -882,7 +926,7 @@ pub async fn backup_source_bootstrap(
     app: tauri::AppHandle,
     input: crate::domain::BootstrapBackupInput,
 ) -> Result<crate::domain::BackupSourceStatus, String> {
-    run_blocking_command(move || store::backup_source_bootstrap(&app, &input)).await
+    run_locked_command(move || store::backup_source_bootstrap(&app, &input)).await
 }
 
 #[tauri::command]
@@ -890,7 +934,7 @@ pub async fn skill_import_from_repo_source(
     app: tauri::AppHandle,
     input: crate::domain::ImportRepoSourceSkillInput,
 ) -> Result<crate::domain::SkillMutationResult, String> {
-    run_blocking_command(move || store::import_skill_from_repo_source(&app, &input)).await
+    run_locked_command(move || store::import_skill_from_repo_source(&app, &input)).await
 }
 
 // ─── MCP Server commands ──────────────────────────────────────────────────────
@@ -913,7 +957,7 @@ pub async fn mcp_create(
     app: tauri::AppHandle,
     input: crate::domain::CreateMcpServerInput,
 ) -> Result<crate::domain::CreateMcpServerResult, String> {
-    run_blocking_command(move || crate::mcp::create_mcp_server(&app, &input)).await
+    run_locked_command(move || crate::mcp::create_mcp_server(&app, &input)).await
 }
 
 #[tauri::command]
@@ -921,12 +965,12 @@ pub async fn mcp_update(
     app: tauri::AppHandle,
     input: crate::domain::UpdateMcpServerInput,
 ) -> Result<crate::domain::McpServerDto, String> {
-    run_blocking_command(move || crate::mcp::update_mcp_server(&app, &input)).await
+    run_locked_command(move || crate::mcp::update_mcp_server(&app, &input)).await
 }
 
 #[tauri::command]
 pub async fn mcp_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    run_blocking_command(move || crate::mcp::delete_mcp_server(&app, &id)).await
+    run_locked_command(move || crate::mcp::delete_mcp_server(&app, &id)).await
 }
 
 #[tauri::command]
@@ -934,7 +978,7 @@ pub async fn mcp_install_global(
     app: tauri::AppHandle,
     input: crate::domain::InstallMcpGlobalInput,
 ) -> Result<crate::domain::InstallMcpResult, String> {
-    run_blocking_command(move || crate::mcp::install_mcp_global(&app, &input)).await
+    run_locked_command(move || crate::mcp::install_mcp_global(&app, &input)).await
 }
 
 #[tauri::command]
@@ -942,7 +986,7 @@ pub async fn mcp_uninstall_global(
     app: tauri::AppHandle,
     input: crate::domain::InstallMcpGlobalInput,
 ) -> Result<crate::domain::InstallMcpResult, String> {
-    run_blocking_command(move || crate::mcp::uninstall_mcp_global(&app, &input)).await
+    run_locked_command(move || crate::mcp::uninstall_mcp_global(&app, &input)).await
 }
 
 #[tauri::command]
@@ -950,7 +994,7 @@ pub async fn mcp_install_to_project(
     app: tauri::AppHandle,
     input: crate::domain::InstallMcpToProjectInput,
 ) -> Result<crate::domain::InstallMcpResult, String> {
-    run_blocking_command(move || crate::mcp::install_mcp_to_project(&app, &input)).await
+    run_locked_command(move || crate::mcp::install_mcp_to_project(&app, &input)).await
 }
 
 #[tauri::command]
@@ -958,7 +1002,7 @@ pub async fn mcp_uninstall_from_project(
     app: tauri::AppHandle,
     input: crate::domain::InstallMcpToProjectInput,
 ) -> Result<crate::domain::InstallMcpResult, String> {
-    run_blocking_command(move || crate::mcp::uninstall_mcp_from_project(&app, &input)).await
+    run_locked_command(move || crate::mcp::uninstall_mcp_from_project(&app, &input)).await
 }
 
 #[tauri::command]
@@ -988,7 +1032,7 @@ pub async fn mcp_import_external(
     app: tauri::AppHandle,
     input: crate::domain::ImportExternalMcpInput,
 ) -> Result<crate::domain::CreateMcpServerResult, String> {
-    run_blocking_command(move || crate::mcp::import_external_mcp_server(&app, &input)).await
+    run_locked_command(move || crate::mcp::import_external_mcp_server(&app, &input)).await
 }
 
 // ─── Plugin / Extension commands ──────────────────────────────────────────────
@@ -1011,7 +1055,7 @@ pub async fn plugin_import_from_folder(
     app: tauri::AppHandle,
     input: crate::domain::ImportPluginFromFolderInput,
 ) -> Result<crate::domain::ImportPluginOutcome, String> {
-    run_blocking_command(move || crate::plugins::import_plugin_from_folder(&app, &input)).await
+    run_locked_command(move || crate::plugins::import_plugin_from_folder(&app, &input)).await
 }
 
 #[tauri::command]
@@ -1026,7 +1070,7 @@ pub async fn plugin_import_from_zip(
     app: tauri::AppHandle,
     zip_path: String,
 ) -> Result<crate::domain::ImportPluginOutcome, String> {
-    run_blocking_command(move || crate::plugins::import_plugin_from_zip(&app, &zip_path)).await
+    run_locked_command(move || crate::plugins::import_plugin_from_zip(&app, &zip_path)).await
 }
 
 #[tauri::command]
@@ -1034,7 +1078,7 @@ pub async fn plugin_import_from_git(
     app: tauri::AppHandle,
     input: crate::domain::ImportPluginFromGitInput,
 ) -> Result<crate::domain::ImportPluginOutcome, String> {
-    run_blocking_command(move || crate::plugins::import_plugin_from_git(&app, &input)).await
+    run_locked_command(move || crate::plugins::import_plugin_from_git(&app, &input)).await
 }
 
 #[tauri::command]
@@ -1042,12 +1086,12 @@ pub async fn plugin_import_staged(
     app: tauri::AppHandle,
     input: crate::domain::ImportStagedPluginsInput,
 ) -> Result<crate::domain::ImportPluginBatchResult, String> {
-    run_blocking_command(move || crate::plugins::import_staged_plugins(&app, &input)).await
+    run_locked_command(move || crate::plugins::import_staged_plugins(&app, &input)).await
 }
 
 #[tauri::command]
 pub async fn plugin_discard_staged(staging_id: String) -> Result<(), String> {
-    run_blocking_command(move || {
+    run_locked_command(move || {
         crate::plugins::discard_staged_import(&staging_id);
         Ok(())
     })
@@ -1059,12 +1103,12 @@ pub async fn plugin_update_config(
     app: tauri::AppHandle,
     input: crate::domain::UpdatePluginConfigInput,
 ) -> Result<crate::domain::PluginDto, String> {
-    run_blocking_command(move || crate::plugins::update_plugin_config(&app, &input)).await
+    run_locked_command(move || crate::plugins::update_plugin_config(&app, &input)).await
 }
 
 #[tauri::command]
 pub async fn plugin_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    run_blocking_command(move || crate::plugins::delete_plugin(&app, &id)).await
+    run_locked_command(move || crate::plugins::delete_plugin(&app, &id)).await
 }
 
 #[tauri::command]
@@ -1072,7 +1116,7 @@ pub async fn plugin_install_global(
     app: tauri::AppHandle,
     input: crate::domain::InstallPluginGlobalInput,
 ) -> Result<crate::domain::InstallPluginResult, String> {
-    run_blocking_command(move || crate::plugins::install_plugin_global(&app, &input)).await
+    run_locked_command(move || crate::plugins::install_plugin_global(&app, &input)).await
 }
 
 #[tauri::command]
@@ -1080,7 +1124,7 @@ pub async fn plugin_uninstall_global(
     app: tauri::AppHandle,
     input: crate::domain::InstallPluginGlobalInput,
 ) -> Result<crate::domain::InstallPluginResult, String> {
-    run_blocking_command(move || crate::plugins::uninstall_plugin_global(&app, &input)).await
+    run_locked_command(move || crate::plugins::uninstall_plugin_global(&app, &input)).await
 }
 
 #[tauri::command]
@@ -1088,7 +1132,7 @@ pub async fn plugin_install_to_project(
     app: tauri::AppHandle,
     input: crate::domain::InstallPluginToProjectInput,
 ) -> Result<crate::domain::InstallPluginResult, String> {
-    run_blocking_command(move || crate::plugins::install_plugin_to_project(&app, &input)).await
+    run_locked_command(move || crate::plugins::install_plugin_to_project(&app, &input)).await
 }
 
 #[tauri::command]
@@ -1096,7 +1140,7 @@ pub async fn plugin_uninstall_from_project(
     app: tauri::AppHandle,
     input: crate::domain::InstallPluginToProjectInput,
 ) -> Result<crate::domain::InstallPluginResult, String> {
-    run_blocking_command(move || crate::plugins::uninstall_plugin_from_project(&app, &input)).await
+    run_locked_command(move || crate::plugins::uninstall_plugin_from_project(&app, &input)).await
 }
 
 #[tauri::command]
@@ -1133,7 +1177,7 @@ pub async fn ssh_calibrate_target(
     app: tauri::AppHandle,
     app_id: String,
 ) -> Result<crate::domain::SshAppSyncLedger, String> {
-    run_blocking_command(move || crate::ssh_sync::calibrate_ssh_target(&app, &app_id)).await
+    run_locked_command(move || crate::ssh_sync::calibrate_ssh_target(&app, &app_id)).await
 }
 
 #[tauri::command]
@@ -1141,6 +1185,5 @@ pub async fn ssh_sync_all_enabled(
     app: tauri::AppHandle,
     app_id: String,
 ) -> Result<crate::domain::SshSyncSummaryResult, String> {
-    run_blocking_command(move || crate::ssh_sync::sync_all_enabled_to_ssh_target(&app, &app_id))
-        .await
+    run_locked_command(move || crate::ssh_sync::sync_all_enabled_to_ssh_target(&app, &app_id)).await
 }
